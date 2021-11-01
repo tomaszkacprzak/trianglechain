@@ -1,15 +1,16 @@
-import pylab as plt, numpy as np, scipy, warnings
+import pylab as plt, numpy as np, scipy, warnings, math
 from matplotlib.ticker import FormatStrFormatter
+from matplotlib.colors import ListedColormap
 from functools import partial
 from scipy.stats import median_absolute_deviation
 from sklearn.preprocessing import MinMaxScaler
 
 class TriangleChain():
 
-    def __init__(self, fig=None, size=4, labels=None, ranges={}, ticks={}, **kwargs):
+    def __init__(self, fig=None, size=4, **kwargs):
         """
         :param fig: matplotlib figure to use
-        :param size: figures size for a new figure, for a single panel. All panels are square 
+        :param size: figures size for a new figure, for a single panel. All panels are square
         :param labels: labels for the parameters, default taken from columns
         :param ranges: dictionary with ranges for parameters, keys correspond to column names
         :param ticks: values for axis ticks, defaults taken from range with 3 equally spaced values
@@ -21,7 +22,7 @@ class TriangleChain():
                                           median_filter: use median filter on the 2D histogram
                                           kde: use TreeKDE, may be slow
                                           hist: simple 2D histogram
-        :param de_kwargs: density estimation kwargs, dictionary with keys: 
+        :param de_kwargs: density estimation kwargs, dictionary with keys:
                           n_points: number of bins for 2d histograms used to create contours, etc, default: n_bins
                           levels: density levels for contours, the contours will enclose this level of probability, default: [0.68, 0.95]
                           n_levels_check: number of levels to check when looking for density levels, default: 1000. More levels is more accurate, but slower
@@ -47,36 +48,45 @@ class TriangleChain():
 
         """
 
-        kwargs.setdefault('ticks', ticks)
-        kwargs.setdefault('ranges', ranges)
-        kwargs.setdefault('labels', None)
+        kwargs.setdefault('ticks', {})
+        kwargs.setdefault('ranges', {})
+        kwargs.setdefault('labels', {})
         kwargs.setdefault('n_bins', 100)
         kwargs.setdefault('de_kwargs', {})
         kwargs.setdefault('grid_kwargs', {})
         kwargs.setdefault('hist_kwargs', {})
+        kwargs.setdefault('labels_kwargs', {})
         kwargs.setdefault('density_estimation_method', 'smoothing')
+        kwargs.setdefault('alpha_for_low_density', False)
+        kwargs.setdefault('alpha_threshold', 0)
+        kwargs.setdefault('n_ticks', 3)
         kwargs.setdefault('fill', False)
+        kwargs.setdefault('grid', False)
         kwargs.setdefault('scatter_kwargs', {})
+        kwargs.setdefault('grouping_kwargs', {})
         kwargs['de_kwargs'].setdefault('n_points', kwargs['n_bins'])
         kwargs['de_kwargs'].setdefault('levels', [0.68, 0.95])
         kwargs['de_kwargs'].setdefault('n_levels_check', 1000)
         kwargs['de_kwargs']['levels'].sort()
         kwargs['grid_kwargs'].setdefault('fontsize_ticklabels', 14)
         kwargs['grid_kwargs'].setdefault('tickformat', '{: 0.2e}')
+        kwargs['grid_kwargs'].setdefault('font_family', 'sans-serif')
         kwargs['hist_kwargs'].setdefault('lw', 4)
+        kwargs['labels_kwargs'].setdefault('fontsize', 24)
+        kwargs['labels_kwargs'].setdefault('family', 'sans-serif')
+        kwargs['grouping_kwargs'].setdefault('n_per_group', None)
+        kwargs['grouping_kwargs'].setdefault('empty_ratio', 0.2)
 
         self.fig = fig
-        self.size = size 
+        self.size = size
         self.kwargs = kwargs
         self.funcs = ['contour_cl', 'density_image', 'scatter', 'scatter_prob', 'scatter_density']
-
         for fname in self.funcs:
 
             f = partial(self.add_plot, plottype=fname)
             setattr(self, fname, f)
-  
-    def add_plot(self, data, plottype, prob=None, color='b', cmap=plt.cm.plasma, tri='lower', plot_histograms_1D=True):
 
+    def add_plot(self, data, plottype, prob=None, color='b', cmap=plt.cm.plasma, tri='lower', plot_histograms_1D=True):
         self.fig = plot_triangle_maringals(fig=self.fig, size=self.size, func=plottype, cmap=cmap, data=data, prob=prob, tri=tri, color=color, plot_histograms_1D=plot_histograms_1D, **self.kwargs)
         return self.fig
 
@@ -115,7 +125,7 @@ def histogram_1D(data, prob, binedges):
         hist_prob, _ = np.histogram(data, bins=binedges, weights=prob)
         prob1D = hist_prob/hist_counts.astype(np.float)
         prob1D[hist_counts==0]=0
-    
+
     prob1D = prob1D/np.sum(prob1D)
     return prob1D
 
@@ -130,7 +140,7 @@ def get_density_grid_1D(data, binedges, bincenters, lims, prob=None, method='smo
         else:
             data_ = data[:,np.newaxis]
 
-        from SoboLike.utils.TransformedGaussianMixture import TransformedGaussianMixture
+        from trianglechain.TransformedGaussianMixture import TransformedGaussianMixture
         from sklearn.mixture import GaussianMixture
         clf = TransformedGaussianMixture(param_bounds=[lims], n_components=20, covariance_type='full')
         clf.fit(data_)
@@ -195,7 +205,7 @@ def get_smoothing_sigma(x, max_points=5000):
 
     x = np.atleast_2d(x)
     from sklearn.decomposition import PCA
-    
+
     if x.shape[0]==2:
         pca = PCA()
         pca.fit(x.T)
@@ -219,7 +229,7 @@ def get_density_grid_2D(data, ranges, columns, i, j, prob=None, method='smoothin
     bins_x_centers = (bins_x[1:]+bins_x[:-1])/2.
     bins_y_centers = (bins_y[1:]+bins_y[:-1])/2.
     x_grid_centers, y_grid_centers = np.meshgrid(bins_x_centers, bins_y_centers)
-    
+
     if method=='gaussian_mixture':
 
         if prob is not None:
@@ -228,7 +238,7 @@ def get_density_grid_2D(data, ranges, columns, i, j, prob=None, method='smoothin
 
         bounds = [ranges[columns[j]], ranges[columns[i]]]
 
-        from SoboLike.utils.TransformedGaussianMixture import TransformedGaussianMixture
+        from trianglechain.TransformedGaussianMixture import TransformedGaussianMixture
         from sklearn.mixture import GaussianMixture
         clf = TransformedGaussianMixture(param_bounds=bounds, n_components=10, covariance_type='full')
         clf.fit(data_panel.T)
@@ -266,7 +276,7 @@ def get_density_grid_2D(data, ranges, columns, i, j, prob=None, method='smoothin
 
         from KDEpy import TreeKDE
         de = TreeKDE(kernel='gaussian').fit(data_panel.T).evaluate(gridpoints.T).reshape(x_grid.shape)
-      
+
     elif method=='hist':
 
         de = histogram_2D(data_panel, prob, bins_x, bins_y)
@@ -279,12 +289,12 @@ def get_density_grid_2D(data, ranges, columns, i, j, prob=None, method='smoothin
     de = de/np.sum(de)
     return de, x_grid_centers, y_grid_centers
 
-def density_image(axc, data, ranges, columns, i, j, fill, color, cmap, de_kwargs, prob=None, density_estimation_method='smoothing'):
+def density_image(axc, data, ranges, columns, i, j, fill, color, cmap, de_kwargs, prob=None, density_estimation_method='smoothing', alpha_for_low_density=False, alpha_threshold = 0):
     """
     axc - axis of the plot
     data - numpy struct array with column data
     ranges - dict of ranges for each column in data
-    columns - list of columns 
+    columns - list of columns
     i, j - pair of columns to plot
     fill - use filled contour
     color - color for the contour
@@ -292,8 +302,13 @@ def density_image(axc, data, ranges, columns, i, j, fill, color, cmap, de_kwargs
     prob - if not None, then probability attached to the samples, in that case samples are treated as grid not a chain
     """
     kde, x_grid, y_grid = get_density_grid_2D(data=data, ranges=ranges, columns=columns, i=i, j=j, de_kwargs=de_kwargs, prob=prob, method=density_estimation_method)
-
-    axc.pcolormesh(x_grid, y_grid, kde, cmap=cmap, shading='auto', vmin=0)
+    if alpha_for_low_density:
+        cmap_plt = plt.get_cmap(cmap)
+        my_cmap = cmap_plt(np.arange(cmap_plt.N))
+        cmap_threshold = int(cmap_plt.N * alpha_threshold)
+        my_cmap[:cmap_threshold,-1] = np.linspace(0, 1, cmap_threshold)
+        cmap = ListedColormap(my_cmap)
+    axc.pcolormesh(x_grid, y_grid, kde, cmap=cmap, shading='auto')
 
 def get_confidence_levels(de, levels, n_levels_check):
 
@@ -317,20 +332,20 @@ def contour_cl(axc, data, ranges, columns, i, j, fill, color, de_kwargs, prob=No
     axc - axis of the plot
     data - numpy struct array with column data
     ranges - dict of ranges for each column in data
-    columns - list of columns 
+    columns - list of columns
     i, j - pair of columns to plot
     fill - use filled contour
     color - color for the contour
     de_kwargs - dict with kde settings, has to have n_points, n_levels_check, levels, defaults below
     prob - if not None, then probability attached to the samples, in that case samples are treated as grid not a chain
     """
-                                                 
+
     de, x_grid, y_grid = get_density_grid_2D(i=i, j=j,
                                              data=data,
                                              prob=prob,
                                              ranges=ranges,
                                              columns=columns,
-                                             method=density_estimation_method, 
+                                             method=density_estimation_method,
                                              de_kwargs=de_kwargs)
 
     levels_contour = get_confidence_levels(de=de, levels=de_kwargs['levels'], n_levels_check=de_kwargs['n_levels_check'])
@@ -387,7 +402,7 @@ def scatter_density(axc, points1, points2, n_bins=50, lim1=None, lim2=None, norm
         axc.set_xlim(lim1);
     if lim2 is not None:
         axc.set_ylim(lim2)
-   
+
 
     if n_points_scatter>0:
         select = np.random.choice(len(points1_box), n_points_scatter)
@@ -426,7 +441,7 @@ def ensure_rec(data, column_prefix=''):
 
     if data.dtype.names is not None:
         return data
-    
+
     else:
 
         n_rows, n_cols = data.shape
@@ -437,11 +452,30 @@ def ensure_rec(data, column_prefix=''):
         return rec
 
 
-def plot_triangle_maringals(data, prob=None, func='contour_cl', tri='lower', single_tri=True, color='b', cmap=plt.cm.plasma, ranges={}, ticks={}, n_bins=20, fig=None, size=4, fill=True, labels=None, plot_histograms_1D=True, density_estimation_method='smoothing', subplots_kwargs={}, de_kwargs={}, hist_kwargs={}, axes_kwargs={}, labels_kwargs={}, grid_kwargs={}, scatter_kwargs={}):
-
+def plot_triangle_maringals(data, prob=None, func='contour_cl', tri='lower',
+                            single_tri=True, color='b', cmap=plt.cm.plasma,
+                            ranges={}, ticks={}, n_bins=20, fig=None, size=4,
+                            fill=True, grid=False, labels=None, plot_histograms_1D=True,
+                            density_estimation_method='smoothing', n_ticks=3,
+                            alpha_for_low_density=False, alpha_threshold=0,
+                            subplots_kwargs={}, de_kwargs={}, hist_kwargs={}, axes_kwargs={},
+                            labels_kwargs={}, grid_kwargs={}, scatter_kwargs={}, grouping_kwargs={}):
     data = ensure_rec(data)
 
     columns = data.dtype.names
+
+
+    try:
+        grouping_indices = np.cumsum(np.asarray(grouping_kwargs['n_per_group']))[:-1]
+        columns = np.insert(columns, grouping_indices + 1, 'EMPTY')
+    except:
+        pass
+
+    hw_ratios = np.ones_like(columns,dtype=float)
+    for i,l in enumerate(columns):
+        if l=='EMPTY':
+            hw_ratios[i] = grouping_kwargs['empty_ratio']
+
     n_dim = len(columns)
     if single_tri:
         n_box = n_dim
@@ -449,7 +483,7 @@ def plot_triangle_maringals(data, prob=None, func='contour_cl', tri='lower', sin
         n_box = n_dim+1
 
     n_samples = len(data)
-    
+
     if prob is not None:
         prob = prob/np.sum(prob)
 
@@ -462,20 +496,58 @@ def plot_triangle_maringals(data, prob=None, func='contour_cl', tri='lower', sin
 
     # Create figure if necessary and get axes
     if fig is None:
-        fig, _ = plt.subplots(nrows=n_box, ncols=n_box, figsize=(n_box*size, n_box*size), **subplots_kwargs)
+        fig, _ = plt.subplots(nrows=n_box, ncols=n_box, figsize=(sum(hw_ratios)*size, sum(hw_ratios)*size),
+                              gridspec_kw = {'height_ratios': hw_ratios, 'width_ratios': hw_ratios}, **subplots_kwargs)
         ax = np.array(fig.get_axes()).reshape(n_box, n_box)
         for axc in ax.ravel():
             axc.axis('off')
     else:
         ax = np.array(fig.get_axes()).reshape(n_box, n_box)
 
+    # round to get nicer ticks
+    def round_to_significant_digits(number, significant_digits):
+        try:
+            return round(number, significant_digits - int(math.floor(math.log10(abs(number)))) - 1)
+        except:
+            return number
+
+    def find_optimal_ticks(range_of_param, n_ticks = 3):
+        diff = range_of_param[1]-range_of_param[0]
+        ticks = np.zeros(n_ticks)
+
+        # mathematical center and tick interval
+        diff_range = diff/(n_ticks+1)
+        center = range_of_param[0] + diff/2
+
+        # nicely rounded tick interval
+        rounded_diff_range = round_to_significant_digits(diff_range, 1)
+        if abs(rounded_diff_range-diff_range)/diff_range > 0.199:
+            rounded_diff_range = round_to_significant_digits(diff_range, 2)
+
+        # decimal until which ticks are rounded
+        decimal_to_round = math.floor(np.log10(rounded_diff_range))
+        if n_ticks&2==0:
+            decimal_to_round-=1
+
+        # nicely rounded center value
+        rounded_center = np.around(center, -decimal_to_round)
+
+        start = rounded_center - (n_ticks-1)/2 * rounded_diff_range
+        for i in range(n_ticks):
+            ticks[i] = np.around(start + i*rounded_diff_range, -decimal_to_round)
+        return ticks
+
     for c in columns:
         if c not in ranges:
-            print(c)
-            ranges[c] = (np.amin(data[c])-1e-6, np.amax(data[c])+1e-6)
+            if c == 'EMPTY':
+                ranges[c] = (np.nan, np.nan)
+            else:
+                ranges[c] = (np.amin(data[c])-1e-6, np.amax(data[c])+1e-6)
         if c not in ticks:
-            ticks[c] = np.linspace(ranges[c][0], ranges[c][1], 5)[1:-1] 
-
+            if c=='EMPTY':
+                ticks[c] = np.zeros(n_ticks)
+            else:
+                ticks[c] = find_optimal_ticks((ranges[c][0], ranges[c][1]), n_ticks)
     # Bins for histograms
     hist_binedges = {c: np.linspace(*ranges[c], num=n_bins + 1) for c in columns}
     hist_bincenters = {c: (hist_binedges[c][1:]+hist_binedges[c][:-1])/2 for c in columns}
@@ -503,44 +575,46 @@ def plot_triangle_maringals(data, prob=None, func='contour_cl', tri='lower', sin
     # Plot histograms
     if plot_histograms_1D:
         for i in range(n_dim):
-
-            prob1D = get_density_grid_1D(data=data[columns[i]],
-                                         prob=prob,
-                                         lims=ranges[columns[i]],
-                                         binedges=hist_binedges[columns[i]],
-                                         bincenters=hist_bincenters[columns[i]],
-                                         method=density_estimation_method, 
-                                         de_kwargs=de_kwargs)
+            if columns[i]!='EMPTY':
+                prob1D = get_density_grid_1D(data=data[columns[i]],
+                                            prob=prob,
+                                            lims=ranges[columns[i]],
+                                            binedges=hist_binedges[columns[i]],
+                                            bincenters=hist_bincenters[columns[i]],
+                                            method=density_estimation_method,
+                                            de_kwargs=de_kwargs)
             # prob1D = histogram_1D(data=data[columns[i]], prob=prob, binedges=hist_binedges[columns[i]], bincenters=hist_bincenters[columns[i]])
 
-            axc = get_current_ax(ax, tri, i, i)
-            axc.plot(hist_bincenters[columns[i]], prob1D, '-', color=color_hist, **hist_kwargs)
-            if fill:
-                axc.fill_between(hist_bincenters[columns[i]], np.zeros_like(prob1D), prob1D, alpha=0.1, color=color_hist)
-            axc.set_xlim(ranges[columns[i]])
+                axc = get_current_ax(ax, tri, i, i)
+                axc.plot(hist_bincenters[columns[i]], prob1D, '-', color=color_hist, **hist_kwargs)
+                if fill:
+                    axc.fill_between(hist_bincenters[columns[i]], np.zeros_like(prob1D), prob1D, alpha=0.1, color=color_hist)
+                axc.set_xlim(ranges[columns[i]])
+                axc.set_ylim(bottom=0)
 
 
     # data
     for i, j in zip(*tri_indices):
+        if columns[i]!='EMPTY' and columns[j]!='EMPTY':
+            axc = get_current_ax(ax, tri, i, j)
 
-        axc = get_current_ax(ax, tri, i, j)
+            if func=='contour_cl':
+                contour_cl(axc, data=data, ranges=ranges, columns=columns, i=i, j=j, fill=fill, color=color, de_kwargs=de_kwargs, prob=prob, density_estimation_method=density_estimation_method)
+            if func=='density_image':
+                density_image(axc, data=data, ranges=ranges, columns=columns, i=i, j=j, fill=fill, color=color, cmap=cmap, de_kwargs=de_kwargs, prob=prob,
+                              density_estimation_method=density_estimation_method, alpha_for_low_density=alpha_for_low_density, alpha_threshold=alpha_threshold)
+            elif func=='scatter':
+                axc.scatter(data[columns[j]], data[columns[i]], c=color, cmap=cmap, **scatter_kwargs)
+            elif func=='scatter_prob':
+                sorting = np.argsort(prob)
+                axc.scatter(data[columns[j]][sorting], data[columns[i]][sorting], c=prob[sorting], **scatter_kwargs)
+            elif func=='scatter_density':
+                scatter_density(axc, points1=data[columns[j]], points2=data[columns[i]], n_bins=n_bins, lim1=ranges[columns[j]], lim2=ranges[columns[i]], norm_cols=False, n_points_scatter=-1, cmap=cmap)
 
-        if func=='contour_cl':
-            contour_cl(axc, data=data, ranges=ranges, columns=columns, i=i, j=j, fill=fill, color=color, de_kwargs=de_kwargs, prob=prob, density_estimation_method=density_estimation_method)
-        if func=='density_image':
-            density_image(axc, data=data, ranges=ranges, columns=columns, i=i, j=j, fill=fill, color=color, cmap=cmap, de_kwargs=de_kwargs, prob=prob, density_estimation_method=density_estimation_method)
-        elif func=='scatter':
-            axc.scatter(data[columns[j]], data[columns[i]], c=color, cmap=cmap, **scatter_kwargs)
-        elif func=='scatter_prob':
-            sorting = np.argsort(prob)
-            axc.scatter(data[columns[j]][sorting], data[columns[i]][sorting], c=prob[sorting], **scatter_kwargs)
-        elif func=='scatter_density':
-            scatter_density(axc, points1=data[columns[j]], points2=data[columns[i]], n_bins=n_bins, lim1=ranges[columns[j]], lim2=ranges[columns[i]], norm_cols=False, n_points_scatter=-1, cmap=cmap)
-            
-        axc.set_xlim(ranges[columns[j]])
-        axc.set_ylim(ranges[columns[i]])
-        axc.get_yaxis().set_major_formatter(FormatStrFormatter('%.3e'))
-        axc.get_xaxis().set_major_formatter(FormatStrFormatter('%.3e'))      
+            axc.set_xlim(ranges[columns[j]])
+            axc.set_ylim(ranges[columns[i]])
+            axc.get_yaxis().set_major_formatter(FormatStrFormatter('%.3e'))
+            axc.get_xaxis().set_major_formatter(FormatStrFormatter('%.3e'))
 
 
     # ticks
@@ -554,32 +628,40 @@ def plot_triangle_maringals(data, prob=None, func='contour_cl', tri='lower', sin
         axc.set_yticks([])
         axc.set_xticklabels([])
         axc.set_yticklabels([])
-        axc.grid(False)
+        axc.grid(grid)
 
 
     # ticks
     if tri[0]=='l':
         for i in range(1, n_dim): # rows
             for j in range(0, i): # columns
-                axc = get_current_ax(ax, tri, i, j)
-                axc.yaxis.tick_left()
-                axc.set_yticks(get_ticks(i))
+                if columns[i]!='EMPTY' and columns[j]!='EMPTY':
+                    axc = get_current_ax(ax, tri, i, j)
+                    axc.yaxis.tick_left()
+                    axc.set_yticks(get_ticks(i))
+                    #axc.tick_params(direction="in")
         for i in range(1, n_dim): # rows
             for j in range(0,i+1): # columns
-                axc = get_current_ax(ax, tri, i, j)
-                axc.xaxis.tick_bottom()
-                axc.set_xticks(get_ticks(j))
+                if columns[i]!='EMPTY' and columns[j]!='EMPTY':
+                    axc = get_current_ax(ax, tri, i, j)
+                    axc.xaxis.tick_bottom()
+                    axc.set_xticks(get_ticks(j))
+                    #axc.tick_params(direction="in")
     elif tri[0]=='u':
         for i in range(0, n_dim-1): # rows
             for j in range(i+1, n_dim): # columns
-                axc = get_current_ax(ax, tri, i, j)
-                axc.yaxis.tick_right()
-                axc.set_yticks(get_ticks(i))
+                if columns[i]!='EMPTY' and columns[j]!='EMPTY':
+                    axc = get_current_ax(ax, tri, i, j)
+                    axc.yaxis.tick_right()
+                    axc.set_yticks(get_ticks(i))
+                    #axc.tick_params(direction="in")
         for i in range(0, n_dim-1): # rows
             for j in range(0, n_dim): # columns
-                axc = get_current_ax(ax, tri, i, j)
-                axc.xaxis.tick_top()
-                axc.set_xticks(get_ticks(j))       
+                if columns[i]!='EMPTY' and columns[j]!='EMPTY':
+                    axc = get_current_ax(ax, tri, i, j)
+                    axc.xaxis.tick_top()
+                    axc.set_xticks(get_ticks(j))
+                #axc.tick_params(direction="in")
 
 
     def fmt_e(x):
@@ -587,68 +669,84 @@ def plot_triangle_maringals(data, prob=None, func='contour_cl', tri='lower', sin
 
     # ticklabels
     if tri[0]=='l':
-        # y tick labels 
-        for i in range(1, n_dim):  
-            axc = get_current_ax(ax, tri, i, 0)
-            ticklabels = [fmt_e(t) for t in get_ticks(i)]
-            axc.set_yticklabels(ticklabels, rotation=0, fontsize=grid_kwargs['fontsize_ticklabels'], family='monospace')
+        # y tick labels
+        for i in range(1, n_dim):
+            if columns[i]!='EMPTY':
+                axc = get_current_ax(ax, tri, i, 0)
+                #ticklabels = [fmt_e(t) for t in get_ticks(i)]
+                ticklabels = [t for t in get_ticks(i)]
+                axc.set_yticklabels(ticklabels, rotation=0, fontsize=grid_kwargs['fontsize_ticklabels'], family=grid_kwargs['font_family'])
         # x tick labels
-        for i in range(0, n_dim): 
-            axc = get_current_ax(ax, tri, n, i)
-            ticklabels = [fmt_e(t) for t in get_ticks(i)]
-            axc.set_xticklabels(ticklabels, rotation=90, fontsize=grid_kwargs['fontsize_ticklabels'], family='monospace')    
+        for i in range(0, n_dim):
+            if columns[i]!='EMPTY':
+                axc = get_current_ax(ax, tri, n, i)
+                #ticklabels = [fmt_e(t) for t in get_ticks(i)]
+                ticklabels = [t for t in get_ticks(i)]
+                axc.set_xticklabels(ticklabels, rotation=90, fontsize=grid_kwargs['fontsize_ticklabels'], family=grid_kwargs['font_family'])
     elif tri[0]=='u':
-        # y tick labels 
-        for i in range(0, n_dim-1):  
-            axc = get_current_ax(ax, tri, i, n)
-            ticklabels = [fmt_e(t) for t in get_ticks(i)]
-            axc.set_yticklabels(ticklabels, rotation=0, fontsize=grid_kwargs['fontsize_ticklabels'], family='monospace')
+        # y tick labels
+        for i in range(0, n_dim-1):
+            if columns[i]!='EMPTY':
+                axc = get_current_ax(ax, tri, i, n)
+                ticklabels = [fmt_e(t) for t in get_ticks(i)]
+                axc.set_yticklabels(ticklabels, rotation=0, fontsize=grid_kwargs['fontsize_ticklabels'], family=grid_kwargs['font_family'])
         # x tick labels
-        for i in range(0, n_dim): 
-            axc = get_current_ax(ax, tri, 0, i)
-            ticklabels = [fmt_e(t) for t in get_ticks(i)]
-            axc.set_xticklabels(ticklabels, rotation=90, fontsize=grid_kwargs['fontsize_ticklabels'], family='monospace')    
+        for i in range(0, n_dim):
+            if columns[i]!='EMPTY':
+                axc = get_current_ax(ax, tri, 0, i)
+                ticklabels = [fmt_e(t) for t in get_ticks(i)]
+                axc.set_xticklabels(ticklabels, rotation=90, fontsize=grid_kwargs['fontsize_ticklabels'], family=grid_kwargs['font_family'])
 
 
     # grid
-    if tri[0]=='l': 
+    if tri[0]=='l':
         for i in range(1,n_dim):
-            for j in range(i):  
-                axc = get_current_ax(ax, tri, i, j)
-                axc.grid(True)
+            for j in range(i):
+                if columns[i]!='EMPTY' and columns[j]!='EMPTY':
+                    axc = get_current_ax(ax, tri, i, j)
+                    axc.grid(grid)
     elif tri[0]=='u':
         for i in range(0,n_dim-1):
-            for j in range(i+1,n_dim):  
-                axc = get_current_ax(ax, tri, i, j)
-                axc.grid(True) 
+            for j in range(i+1,n_dim):
+                if columns[i]!='EMPTY' and columns[j]!='EMPTY':
+                    axc = get_current_ax(ax, tri, i, j)
+                    axc.grid(grid)
 
     # Axes labels
     if labels is None:
         labels = columns
+    else:
+        try:
+            labels = np.insert(labels, grouping_indices + 1, 'EMPTY')
+        except:
+            pass
 
 
     if tri[0]=='l':
         labelpad = 10
         for i in range(n_dim):
-            axc = get_current_ax(ax, tri, i, 0)
-            axc.set_ylabel(labels[i], **labels_kwargs, rotation=90, labelpad=labelpad)
-            axc.yaxis.set_label_position("left")
-            axc = get_current_ax(ax, tri, n, i)
-            axc.set_xlabel(labels[i], **labels_kwargs, rotation=0, labelpad=labelpad)
-            axc.xaxis.set_label_position("bottom")
+            if columns[i]!='EMPTY':
+                axc = get_current_ax(ax, tri, i, 0)
+                axc.set_ylabel(labels[i], **labels_kwargs, rotation=90, labelpad=labelpad)
+                axc.yaxis.set_label_position("left")
+                axc = get_current_ax(ax, tri, n, i)
+                axc.set_xlabel(labels[i], **labels_kwargs, rotation=0, labelpad=labelpad)
+                axc.xaxis.set_label_position("bottom")
     elif tri[0]=='u':
         labelpad = 20
         for i in range(n_dim):
-            axc = get_current_ax(ax, tri, i, n)
-            axc.set_ylabel(labels[i], **labels_kwargs, rotation=90, labelpad=labelpad)
-            axc.yaxis.set_label_position("right")
-            axc = get_current_ax(ax, tri, 0, i)
-            axc.set_xlabel(labels[i], **labels_kwargs, rotation=0, labelpad=labelpad)
-            axc.xaxis.set_label_position("top")
+            if columns[i]!='EMPTY':
+                axc = get_current_ax(ax, tri, i, n)
+                axc.set_ylabel(labels[i], **labels_kwargs, rotation=90, labelpad=labelpad)
+                axc.yaxis.set_label_position("right")
+                axc = get_current_ax(ax, tri, 0, i)
+                axc.set_xlabel(labels[i], **labels_kwargs, rotation=0, labelpad=labelpad)
+                axc.xaxis.set_label_position("top")
 
 
 
     plt.subplots_adjust(hspace=0, wspace=0)
-
+    fig.align_ylabels()
+    fig.align_xlabels()
 
     return fig
