@@ -504,11 +504,10 @@ def plot_triangle_maringals(data, prob=None, params='all',
         ind = 0
         for g in grouping_indices:
             ind += g
-            columns = np.insert(columns, ind, 'EMPTY')
+            columns = np.insert(np.array(columns,dtype='<U32'), ind, 'EMPTY')
             ind+=1
     except:
         pass
-
     hw_ratios = np.ones_like(columns,dtype=float)
     for i,l in enumerate(columns):
         if l=='EMPTY':
