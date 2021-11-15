@@ -65,6 +65,7 @@ class TriangleChain():
         kwargs.setdefault('scatter_kwargs', {})
         kwargs.setdefault('grouping_kwargs', {})
         kwargs.setdefault('add_empty_plots_like', None)
+        kwargs.setdefault('label_fontsize', 24)
         kwargs['de_kwargs'].setdefault('n_points', kwargs['n_bins'])
         kwargs['de_kwargs'].setdefault('levels', [0.68, 0.95])
         kwargs['de_kwargs'].setdefault('n_levels_check', 1000)
@@ -88,8 +89,8 @@ class TriangleChain():
             f = partial(self.add_plot, plottype=fname)
             setattr(self, fname, f)
 
-    def add_plot(self, data, plottype, prob=None, params='all', color='b', cmap=plt.cm.plasma, tri='lower', plot_histograms_1D=True):
-        self.fig = plot_triangle_maringals(fig=self.fig, size=self.size, func=plottype, cmap=cmap, data=data, prob=prob, params=params, tri=tri, color=color, plot_histograms_1D=plot_histograms_1D, **self.kwargs)
+    def add_plot(self, data, plottype, prob=None, params='all', color='b', cmap=plt.cm.plasma, tri='lower', plot_histograms_1D=True, label=None):
+        self.fig = plot_triangle_maringals(fig=self.fig, size=self.size, func=plottype, cmap=cmap, data=data, prob=prob, params=params, tri=tri, color=color, plot_histograms_1D=plot_histograms_1D, label=label, **self.kwargs)
         return self.fig
 
 def histogram_2D(data_panel, prob, bins_x, bins_y):
@@ -301,7 +302,7 @@ def get_density_grid_2D(data, ranges, columns, i, j, prob=None, method='smoothin
     de = de/np.sum(de)
     return de, x_grid_centers, y_grid_centers
 
-def density_image(axc, data, ranges, columns, i, j, fill, color, cmap, de_kwargs, prob=None, density_estimation_method='smoothing', alpha_for_low_density=False, alpha_threshold = 0):
+def density_image(axc, data, ranges, columns, i, j, fill, color, cmap, de_kwargs, prob=None, density_estimation_method='smoothing', label=None, alpha_for_low_density=False, alpha_threshold = 0):
     """
     axc - axis of the plot
     data - numpy struct array with column data
@@ -320,7 +321,7 @@ def density_image(axc, data, ranges, columns, i, j, fill, color, cmap, de_kwargs
         cmap_threshold = int(cmap_plt.N * alpha_threshold)
         my_cmap[:cmap_threshold,-1] = np.linspace(0, 1, cmap_threshold)
         cmap = ListedColormap(my_cmap)
-    axc.pcolormesh(x_grid, y_grid, kde, cmap=cmap, vmin=0, shading='auto')
+    axc.pcolormesh(x_grid, y_grid, kde, cmap=cmap, vmin=0, label = label, shading='auto')
 
 def get_confidence_levels(de, levels, n_levels_check):
 
@@ -339,7 +340,7 @@ def get_confidence_levels(de, levels, n_levels_check):
     return levels_contour
 
 
-def contour_cl(axc, data, ranges, columns, i, j, fill, color, de_kwargs, prob=None,  density_estimation_method='smoothing', alpha=1):
+def contour_cl(axc, data, ranges, columns, i, j, fill, color, de_kwargs, prob=None,  density_estimation_method='smoothing', label=None, alpha=1):
     """
     axc - axis of the plot
     data - numpy struct array with column data
@@ -369,11 +370,11 @@ def contour_cl(axc, data, ranges, columns, i, j, fill, color, de_kwargs, prob=No
         for lvl in levels_contour:
             if fill:
                 axc.contourf(x_grid, y_grid, de, levels=[lvl, np.inf], colors=color, alpha=0.1*alpha)
-                axc.contour(x_grid, y_grid, de, levels=[lvl, np.inf], colors=color, alpha=1*alpha, linewidths=2)
+                axc.contour(x_grid, y_grid, de, levels=[lvl, np.inf], colors=color, alpha=1*alpha, linewidths=2, label=label)
             else:
-                axc.contour(x_grid, y_grid, de, levels=[lvl, np.inf], colors=color, alpha=1*alpha, linewidths=4)
+                axc.contour(x_grid, y_grid, de, levels=[lvl, np.inf], colors=color, alpha=1*alpha, linewidths=4, label=label)
 
-def scatter_density(axc, points1, points2, n_bins=50, lim1=None, lim2=None, norm_cols=False, n_points_scatter=-1, colorbar=False, **kwargs):
+def scatter_density(axc, points1, points2, n_bins=50, lim1=None, lim2=None, norm_cols=False, n_points_scatter=-1, colorbar=False, label = None, **kwargs):
 
     import numpy as np
     if lim1 is None:
@@ -419,11 +420,11 @@ def scatter_density(axc, points1, points2, n_bins=50, lim1=None, lim2=None, norm
     if n_points_scatter>0:
         select = np.random.choice(len(points1_box), n_points_scatter)
         c = griddata(points, hv.T.flatten(), xi[select,:], method='linear', rescale=True, fill_value=np.min(hv) )
-        sc = axc.scatter(points1_box[select], points2_box[select], c=c, **kwargs)
+        sc = axc.scatter(points1_box[select], points2_box[select], c=c, label=label, **kwargs)
     else:
         c = griddata(points, hv.T.flatten(), xi, method='linear', rescale=True, fill_value=np.min(hv) )
         sorting = np.argsort(c)
-        sc = axc.scatter(points1_box[sorting], points2_box[sorting], c=c[sorting], **kwargs)
+        sc = axc.scatter(points1_box[sorting], points2_box[sorting], c=c[sorting], label=label, **kwargs)
 
     if colorbar:
         plt.gcf().colorbar(sc, ax=axc)
@@ -469,11 +470,11 @@ def plot_triangle_maringals(data, prob=None, params='all',
                             single_tri=True, color='b', cmap=plt.cm.plasma,
                             ranges={}, ticks={}, n_bins=20, fig=None, size=4,
                             fill=True, grid=False, labels=None, plot_histograms_1D=True,
-                            density_estimation_method='smoothing', n_ticks=3,
+                            label=None, density_estimation_method='smoothing', n_ticks=3,
                             alpha_for_low_density=False, alpha_threshold=0,
                             subplots_kwargs={}, de_kwargs={}, hist_kwargs={}, axes_kwargs={},
                             labels_kwargs={}, grid_kwargs={}, scatter_kwargs={}, grouping_kwargs={},
-                            add_empty_plots_like=None):
+                            add_empty_plots_like=None, label_fontsize=12):
     data = ensure_rec(data)
     if params != 'all':
         data = data[params]
@@ -628,7 +629,7 @@ def plot_triangle_maringals(data, prob=None, params='all',
                 else:
                     max_y = 0
                 axc.autoscale()
-                axc.plot(hist_bincenters[columns[i]], prob1D, '-', color=color_hist, alpha=find_alpha(columns[i], empty_columns), **hist_kwargs)
+                axc.plot(hist_bincenters[columns[i]], prob1D, '-', color=color_hist, alpha=find_alpha(columns[i], empty_columns), label=label, **hist_kwargs)
                 if fill:
                     axc.fill_between(hist_bincenters[columns[i]], np.zeros_like(prob1D), prob1D, alpha=0.1*find_alpha(columns[i], empty_columns), color=color_hist)
                 axc.set_xlim(ranges[columns[i]])
@@ -641,17 +642,17 @@ def plot_triangle_maringals(data, prob=None, params='all',
             axc = get_current_ax(ax, tri, i, j)
 
             if func=='contour_cl':
-                contour_cl(axc, data=data, ranges=ranges, columns=columns, i=i, j=j, fill=fill, color=color, de_kwargs=de_kwargs, prob=prob, density_estimation_method=density_estimation_method, alpha=find_alpha(columns[i], empty_columns))
+                contour_cl(axc, data=data, ranges=ranges, columns=columns, i=i, j=j, fill=fill, color=color, de_kwargs=de_kwargs, prob=prob, density_estimation_method=density_estimation_method, label=label, alpha=find_alpha(columns[i], empty_columns))
             if func=='density_image':
                 density_image(axc, data=data, ranges=ranges, columns=columns, i=i, j=j, fill=fill, color=color, cmap=cmap, de_kwargs=de_kwargs, prob=prob,
-                              density_estimation_method=density_estimation_method, alpha_for_low_density=alpha_for_low_density, alpha_threshold=alpha_threshold)
+                              density_estimation_method=density_estimation_method, label=label, alpha_for_low_density=alpha_for_low_density, alpha_threshold=alpha_threshold)
             elif func=='scatter':
-                axc.scatter(data[columns[j]], data[columns[i]], c=color, cmap=cmap, alpha=find_alpha(columns[i], empty_columns),**scatter_kwargs)
+                axc.scatter(data[columns[j]], data[columns[i]], c=color, cmap=cmap, label=label, alpha=find_alpha(columns[i], empty_columns),**scatter_kwargs)
             elif func=='scatter_prob':
                 sorting = np.argsort(prob)
-                axc.scatter(data[columns[j]][sorting], data[columns[i]][sorting], c=prob[sorting], **scatter_kwargs)
+                axc.scatter(data[columns[j]][sorting], data[columns[i]][sorting], c=prob[sorting], label=label, **scatter_kwargs)
             elif func=='scatter_density':
-                scatter_density(axc, points1=data[columns[j]], points2=data[columns[i]], n_bins=n_bins, lim1=ranges[columns[j]], lim2=ranges[columns[i]], norm_cols=False, n_points_scatter=-1, cmap=cmap)
+                scatter_density(axc, points1=data[columns[j]], points2=data[columns[i]], n_bins=n_bins, lim1=ranges[columns[j]], lim2=ranges[columns[i]], norm_cols=False, n_points_scatter=-1, cmap=cmap, label=label)
 
             axc.set_xlim(ranges[columns[j]])
             axc.set_ylim(ranges[columns[i]])
@@ -767,7 +768,7 @@ def plot_triangle_maringals(data, prob=None, params='all',
         except:
             pass
 
-
+    legend_lines, legend_labels = ax[0,0].get_legend_handles_labels()
     if tri[0]=='l':
         labelpad = 10
         for i in range(n_dim):
@@ -778,6 +779,7 @@ def plot_triangle_maringals(data, prob=None, params='all',
                 axc = get_current_ax(ax, tri, n, i)
                 axc.set_xlabel(labels[i], **labels_kwargs, rotation=0, labelpad=labelpad)
                 axc.xaxis.set_label_position("bottom")
+        fig.legend(legend_lines, legend_labels, bbox_to_anchor=(1, 1), bbox_transform=ax[0,n_dim-1].transAxes, fontsize=label_fontsize)
     elif tri[0]=='u':
         labelpad = 20
         for i in range(n_dim):
@@ -788,11 +790,14 @@ def plot_triangle_maringals(data, prob=None, params='all',
                 axc = get_current_ax(ax, tri, 0, i)
                 axc.set_xlabel(labels[i], **labels_kwargs, rotation=0, labelpad=labelpad)
                 axc.xaxis.set_label_position("top")
+        fig.legend(legend_lines, legend_labels, bbox_to_anchor=(1, 1), bbox_transform=ax[n_dim-1,0].transAxes, fontsize=label_fontsize)
 
 
 
     plt.subplots_adjust(hspace=0, wspace=0)
     fig.align_ylabels()
     fig.align_xlabels()
+
+
 
     return fig
