@@ -623,11 +623,16 @@ def plot_triangle_maringals(data, prob=None, params='all',
             # prob1D = histogram_1D(data=data[columns[i]], prob=prob, binedges=hist_binedges[columns[i]], bincenters=hist_bincenters[columns[i]])
 
                 axc = get_current_ax(ax, tri, i, i)
+                if axc.lines:
+                    max_y = axc.get_ylim()[1]
+                else:
+                    max_y = 0
+                axc.autoscale()
                 axc.plot(hist_bincenters[columns[i]], prob1D, '-', color=color_hist, alpha=find_alpha(columns[i], empty_columns), **hist_kwargs)
                 if fill:
                     axc.fill_between(hist_bincenters[columns[i]], np.zeros_like(prob1D), prob1D, alpha=0.1*find_alpha(columns[i], empty_columns), color=color_hist)
                 axc.set_xlim(ranges[columns[i]])
-                axc.set_ylim(bottom=0)
+                axc.set_ylim(0, max(max_y, axc.get_ylim()[1]))
 
 
     # data
