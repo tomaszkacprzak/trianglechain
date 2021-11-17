@@ -495,6 +495,9 @@ def plot_triangle_maringals(data, prob=None, params='all',
         data = data[params]
     columns = data.dtype.names
 
+    #needed for plotting chains with different automatic limits
+    current_ranges = ranges.copy()
+    current_ticks = ticks.copy()
     def find_alpha(column, empty_columns):
         if column in empty_columns:
             return 0
@@ -585,18 +588,14 @@ def plot_triangle_maringals(data, prob=None, params='all',
         return ticks
 
     for c in columns:
-        if c not in ranges:
+        if c not in current_ranges:
             if c == 'EMPTY':
-                ranges[c] = (np.nan, np.nan)
+                current_ranges[c] = (np.nan, np.nan)
             else:
-                ranges[c] = (np.amin(data[c])-1e-6, np.amax(data[c])+1e-6)
-        if c not in ticks:
-            if c=='EMPTY':
-                ticks[c] = np.zeros(n_ticks)
-            else:
-                ticks[c] = find_optimal_ticks((ranges[c][0], ranges[c][1]), n_ticks)
+                current_ranges[c] = (np.amin(data[c])-1e-6, np.amax(data[c])+1e-6)
+
     # Bins for histograms
-    hist_binedges = {c: np.linspace(*ranges[c], num=n_bins + 1) for c in columns}
+    hist_binedges = {c: np.linspace(*current_ranges[c], num=n_bins + 1) for c in columns}
     hist_bincenters = {c: (hist_binedges[c][1:]+hist_binedges[c][:-1])/2 for c in columns}
 
     if len(color)==len(data):
@@ -619,13 +618,18 @@ def plot_triangle_maringals(data, prob=None, params='all',
         axc.axis('on')
         return axc
 
+    def get_best_lims(new_xlims, new_ylims, old_xlims, old_ylims):
+        xlims = (np.min([new_xlims[0], old_xlims[0]]) , np.max([new_xlims[1], old_xlims[1]]))
+        ylims = (np.min([new_ylims[0], old_ylims[0]]) , np.max([new_ylims[1], old_ylims[1]]))
+        return xlims, ylims
+
     # Plot histograms
     if plot_histograms_1D:
         for i in range(n_dim):
             if columns[i]!='EMPTY':
                 prob1D = get_density_grid_1D(data=data[columns[i]],
                                             prob=prob,
-                                            lims=ranges[columns[i]],
+                                            lims=current_ranges[columns[i]],
                                             binedges=hist_binedges[columns[i]],
                                             bincenters=hist_bincenters[columns[i]],
                                             method=density_estimation_method,
@@ -634,26 +638,34 @@ def plot_triangle_maringals(data, prob=None, params='all',
 
                 axc = get_current_ax(ax, tri, i, i)
                 if axc.lines:
-                    max_y = axc.get_ylim()[1]
+                    old_ylims = axc.get_ylim()
+                    old_xlims = axc.get_ylim()
                 else:
-                    max_y = 0
+                    old_ylims = (np.inf, 0)
+                    old_xlims = (np.inf, -np.inf)
                 axc.autoscale()
                 axc.plot(hist_bincenters[columns[i]], prob1D, '-', color=color_hist, alpha=find_alpha(columns[i], empty_columns), label=label, **hist_kwargs)
                 if fill:
                     axc.fill_between(hist_bincenters[columns[i]], np.zeros_like(prob1D), prob1D, alpha=0.1*find_alpha(columns[i], empty_columns), color=color_hist)
-                axc.set_xlim(ranges[columns[i]])
-                axc.set_ylim(0, max(max_y, axc.get_ylim()[1]))
-
+                xlims, _ = get_best_lims(current_ranges[columns[i]], current_ranges[columns[i]], old_xlims, old_ylims)
+                axc.set_xlim(xlims)
+                axc.set_ylim(0, max(old_ylims[1], axc.get_ylim()[1]))
 
     # data
     for i, j in zip(*tri_indices):
         if columns[i]!='EMPTY' and columns[j]!='EMPTY':
             axc = get_current_ax(ax, tri, i, j)
-
+            if axc.lines:
+                old_ylims = axc.get_ylim()
+                old_xlims = axc.get_ylim()
+            else:
+                old_ylims = (np.inf, -np.inf)
+                old_xlims = (np.inf, -np.inf)
+            axc.autoscale()
             if func=='contour_cl':
-                contour_cl(axc, data=data, ranges=ranges, columns=columns, i=i, j=j, fill=fill, color=color, de_kwargs=de_kwargs, prob=prob, density_estimation_method=density_estimation_method, label=label, alpha=find_alpha(columns[i], empty_columns))
+                contour_cl(axc, data=data, ranges=current_ranges, columns=columns, i=i, j=j, fill=fill, color=color, de_kwargs=de_kwargs, prob=prob, density_estimation_method=density_estimation_method, label=label, alpha=find_alpha(columns[i], empty_columns))
             if func=='density_image':
-                density_image(axc, data=data, ranges=ranges, columns=columns, i=i, j=j, fill=fill, color=color, cmap=cmap, de_kwargs=de_kwargs, prob=prob,
+                density_image(axc, data=data, ranges=current_ranges, columns=columns, i=i, j=j, fill=fill, color=color, cmap=cmap, de_kwargs=de_kwargs, prob=prob,
                               density_estimation_method=density_estimation_method, label=label, alpha_for_low_density=alpha_for_low_density, alpha_threshold=alpha_threshold)
             elif func=='scatter':
                 axc.scatter(data[columns[j]], data[columns[i]], c=color, cmap=cmap, label=label, alpha=find_alpha(columns[i], empty_columns),**scatter_kwargs)
@@ -661,10 +673,10 @@ def plot_triangle_maringals(data, prob=None, params='all',
                 sorting = np.argsort(prob)
                 axc.scatter(data[columns[j]][sorting], data[columns[i]][sorting], c=prob[sorting], label=label, **scatter_kwargs)
             elif func=='scatter_density':
-                scatter_density(axc, points1=data[columns[j]], points2=data[columns[i]], n_bins=n_bins, lim1=ranges[columns[j]], lim2=ranges[columns[i]], norm_cols=False, n_points_scatter=-1, cmap=cmap, label=label)
-
-            axc.set_xlim(ranges[columns[j]])
-            axc.set_ylim(ranges[columns[i]])
+                scatter_density(axc, points1=data[columns[j]], points2=data[columns[i]], n_bins=n_bins, lim1=current_ranges[columns[j]], lim2=current_ranges[columns[i]], norm_cols=False, n_points_scatter=-1, cmap=cmap, label=label)
+            current_ranges[columns[j]], current_ranges[columns[i]] = get_best_lims(current_ranges[columns[j]], current_ranges[columns[i]], old_xlims, old_ylims)
+            axc.set_xlim(current_ranges[columns[j]])
+            axc.set_ylim(current_ranges[columns[i]])
             axc.get_yaxis().set_major_formatter(FormatStrFormatter('%.3e'))
             axc.get_xaxis().set_major_formatter(FormatStrFormatter('%.3e'))
 
@@ -672,7 +684,7 @@ def plot_triangle_maringals(data, prob=None, params='all',
     # ticks
     n = n_dim-1
     # ticks = lambda i: np.linspace(ranges[columns[i]][0], ranges[columns[i]][1], 5)[1:-1]
-    get_ticks = lambda i: ticks[columns[i]]
+    get_ticks = lambda i: current_ticks[columns[i]]
 
     # delete all ticks
     for axc in ax.ravel():
@@ -682,7 +694,12 @@ def plot_triangle_maringals(data, prob=None, params='all',
         axc.set_yticklabels([])
         axc.grid(False)
 
-
+    for c in columns:
+        if c not in current_ticks:
+            if c=='EMPTY':
+                current_ticks[c] = np.zeros(n_ticks)
+            else:
+                current_ticks[c] = find_optimal_ticks((current_ranges[c][0], current_ranges[c][1]), n_ticks)
     # ticks
     if tri[0]=='l':
         for i in range(1, n_dim): # rows
