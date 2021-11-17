@@ -66,6 +66,7 @@ class TriangleChain():
         kwargs.setdefault('grouping_kwargs', {})
         kwargs.setdefault('add_empty_plots_like', None)
         kwargs.setdefault('label_fontsize', 24)
+        kwargs.setdefault('params', 'all')
         kwargs['de_kwargs'].setdefault('n_points', kwargs['n_bins'])
         kwargs['de_kwargs'].setdefault('levels', [0.68, 0.95])
         kwargs['de_kwargs'].setdefault('n_levels_check', 1000)
@@ -89,8 +90,8 @@ class TriangleChain():
             f = partial(self.add_plot, plottype=fname)
             setattr(self, fname, f)
 
-    def add_plot(self, data, plottype, prob=None, params='all', color='b', cmap=plt.cm.plasma, tri='lower', plot_histograms_1D=True, label=None, show_legend=False):
-        self.fig = plot_triangle_maringals(fig=self.fig, size=self.size, func=plottype, cmap=cmap, data=data, prob=prob, params=params, tri=tri, color=color, plot_histograms_1D=plot_histograms_1D, label=label, show_legend=show_legend, **self.kwargs)
+    def add_plot(self, data, plottype, prob=None, color='b', cmap=plt.cm.plasma, tri='lower', plot_histograms_1D=True, label=None, show_legend=False):
+        self.fig = plot_triangle_maringals(fig=self.fig, size=self.size, func=plottype, cmap=cmap, data=data, prob=prob, tri=tri, color=color, plot_histograms_1D=plot_histograms_1D, label=label, show_legend=show_legend, **self.kwargs)
         return self.fig
 
 def histogram_2D(data_panel, prob, bins_x, bins_y):
@@ -476,12 +477,9 @@ def plot_triangle_maringals(data, prob=None, params='all',
                             labels_kwargs={}, grid_kwargs={}, scatter_kwargs={}, grouping_kwargs={},
                             add_empty_plots_like=None, label_fontsize=12, show_legend=False):
     data = ensure_rec(data)
-    if params != 'all':
-        data = data[params]
-    columns = data.dtype.names
-
     empty_columns =[]
     if add_empty_plots_like is not None:
+        columns = data.dtype.names
         data2 = ensure_rec(add_empty_plots_like)
         columns2 = data2.dtype.names
         new_data = np.zeros(len(data),dtype=data2.dtype)
@@ -492,7 +490,10 @@ def plot_triangle_maringals(data, prob=None, params='all',
                 new_data[c] = data2[c][np.random.randint(0,len(data2),len(data))]
                 empty_columns.append(c)
         data = new_data
-        columns = data.dtype.names
+
+    if params != 'all':
+        data = data[params]
+    columns = data.dtype.names
 
     def find_alpha(column, empty_columns):
         if column in empty_columns:
