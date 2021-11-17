@@ -89,8 +89,8 @@ class TriangleChain():
             f = partial(self.add_plot, plottype=fname)
             setattr(self, fname, f)
 
-    def add_plot(self, data, plottype, prob=None, params='all', color='b', cmap=plt.cm.plasma, tri='lower', plot_histograms_1D=True, label=None):
-        self.fig = plot_triangle_maringals(fig=self.fig, size=self.size, func=plottype, cmap=cmap, data=data, prob=prob, params=params, tri=tri, color=color, plot_histograms_1D=plot_histograms_1D, label=label, **self.kwargs)
+    def add_plot(self, data, plottype, prob=None, params='all', color='b', cmap=plt.cm.plasma, tri='lower', plot_histograms_1D=True, label=None, show_legend=False):
+        self.fig = plot_triangle_maringals(fig=self.fig, size=self.size, func=plottype, cmap=cmap, data=data, prob=prob, params=params, tri=tri, color=color, plot_histograms_1D=plot_histograms_1D, label=label, show_legend=show_legend, **self.kwargs)
         return self.fig
 
 def histogram_2D(data_panel, prob, bins_x, bins_y):
@@ -474,7 +474,7 @@ def plot_triangle_maringals(data, prob=None, params='all',
                             alpha_for_low_density=False, alpha_threshold=0,
                             subplots_kwargs={}, de_kwargs={}, hist_kwargs={}, axes_kwargs={},
                             labels_kwargs={}, grid_kwargs={}, scatter_kwargs={}, grouping_kwargs={},
-                            add_empty_plots_like=None, label_fontsize=12):
+                            add_empty_plots_like=None, label_fontsize=12, show_legend=False):
     data = ensure_rec(data)
     if params != 'all':
         data = data[params]
@@ -545,11 +545,11 @@ def plot_triangle_maringals(data, prob=None, params='all',
     # round to get nicer ticks
     def round_to_significant_digits(number, significant_digits):
         try:
-            return round(number, significant_digits - int(math.floor(math.log10(abs(number)))) - 1)
+            return round(number, significant_digits - int(math.floor(math.log10(abs(number)))) -1 )
         except:
             return number
 
-    def find_optimal_ticks(range_of_param, n_ticks = 3):
+    def find_optimal_ticks(range_of_param, n_ticks=3):
         diff = range_of_param[1]-range_of_param[0]
         ticks = np.zeros(n_ticks)
 
@@ -557,22 +557,30 @@ def plot_triangle_maringals(data, prob=None, params='all',
         diff_range = diff/(n_ticks+1)
         center = range_of_param[0] + diff/2
 
-        # nicely rounded tick interval
-        rounded_diff_range = round_to_significant_digits(diff_range, 1)
-        if abs(rounded_diff_range-diff_range)/diff_range > 0.199:
-            rounded_diff_range = round_to_significant_digits(diff_range, 2)
+        #first significant digit for rounding
+        significant_digit = math.floor(np.log10(diff_range))
 
-        # decimal until which ticks are rounded
-        decimal_to_round = math.floor(np.log10(rounded_diff_range))
-        if n_ticks&2==0:
-            decimal_to_round-=1
-
-        # nicely rounded center value
-        rounded_center = np.around(center, -decimal_to_round)
-
-        start = rounded_center - (n_ticks-1)/2 * rounded_diff_range
-        for i in range(n_ticks):
-            ticks[i] = np.around(start + i*rounded_diff_range, -decimal_to_round)
+        for i in range(10*n_ticks):
+            rounded_center = np.around(center, -significant_digit + i)
+            if abs(rounded_center-center)/diff < 0.05:
+                break
+        for i in range(10*n_ticks):
+            rounded_diff_range = np.around(diff_range, -significant_digit)
+            start = rounded_center - (n_ticks-1)/2 * rounded_diff_range
+            for i in range(n_ticks):
+                if n_ticks%2==0:
+                    ticks[i] = np.around(start + i*rounded_diff_range, -significant_digit+1)
+                else:
+                    ticks[i] = np.around(start + i*rounded_diff_range, -significant_digit)
+            #check if ticks are inside parameter space and not too close to each other
+            if (ticks[0]<range_of_param[0]) or (ticks[-1]>range_of_param[1]) or ((ticks[0]-range_of_param[0])>1.2*rounded_diff_range) or ((range_of_param[1]-ticks[-1])>1.2*rounded_diff_range):
+                significant_digit-=1
+            else:
+                break
+        if significant_digit == math.floor(np.log10(diff_range)) - 10*n_ticks:
+            for i in range(n_ticks):
+                start = center - (n_ticks-1)/2 * diff_range
+                ticks[i] = np.around(start + i*diff_range, -significant_digit)
         return ticks
 
     for c in columns:
@@ -716,14 +724,14 @@ def plot_triangle_maringals(data, prob=None, params='all',
         for i in range(1, n_dim):
             if columns[i]!='EMPTY':
                 axc = get_current_ax(ax, tri, i, 0)
-                #ticklabels = [fmt_e(t) for t in get_ticks(i)]
+                ticklabels = [fmt_e(t) for t in get_ticks(i)]
                 ticklabels = [t for t in get_ticks(i)]
                 axc.set_yticklabels(ticklabels, rotation=0, fontsize=grid_kwargs['fontsize_ticklabels'], family=grid_kwargs['font_family'])
         # x tick labels
         for i in range(0, n_dim):
             if columns[i]!='EMPTY':
                 axc = get_current_ax(ax, tri, n, i)
-                #ticklabels = [fmt_e(t) for t in get_ticks(i)]
+                ticklabels = [fmt_e(t) for t in get_ticks(i)]
                 ticklabels = [t for t in get_ticks(i)]
                 axc.set_xticklabels(ticklabels, rotation=90, fontsize=grid_kwargs['fontsize_ticklabels'], family=grid_kwargs['font_family'])
     elif tri[0]=='u':
@@ -779,7 +787,8 @@ def plot_triangle_maringals(data, prob=None, params='all',
                 axc = get_current_ax(ax, tri, n, i)
                 axc.set_xlabel(labels[i], **labels_kwargs, rotation=0, labelpad=labelpad)
                 axc.xaxis.set_label_position("bottom")
-        fig.legend(legend_lines, legend_labels, bbox_to_anchor=(1, 1), bbox_transform=ax[0,n_dim-1].transAxes, fontsize=label_fontsize)
+        if legend_lines and show_legend: #only print legend when there are labels for it
+            fig.legend(legend_lines, legend_labels, bbox_to_anchor=(1, 1), bbox_transform=ax[0,n_dim-1].transAxes, fontsize=label_fontsize)
     elif tri[0]=='u':
         labelpad = 20
         for i in range(n_dim):
@@ -790,7 +799,9 @@ def plot_triangle_maringals(data, prob=None, params='all',
                 axc = get_current_ax(ax, tri, 0, i)
                 axc.set_xlabel(labels[i], **labels_kwargs, rotation=0, labelpad=labelpad)
                 axc.xaxis.set_label_position("top")
-        fig.legend(legend_lines, legend_labels, bbox_to_anchor=(1, 1), bbox_transform=ax[n_dim-1,0].transAxes, fontsize=label_fontsize)
+        if legend_lines and show_legend: #only print legend when there are labels for it
+            fig.get_legend().remove()
+            fig.legend(legend_lines, legend_labels, bbox_to_anchor=(1, 1), bbox_transform=ax[n_dim-1,0].transAxes, fontsize=label_fontsize)
 
 
 
