@@ -1,4 +1,5 @@
 import pylab as plt, numpy as np, scipy, warnings, math
+import matplotlib as mpl
 from matplotlib.ticker import FormatStrFormatter
 from matplotlib.colors import ListedColormap
 from functools import partial
@@ -70,7 +71,8 @@ class TriangleChain():
         kwargs['de_kwargs'].setdefault('n_points', kwargs['n_bins'])
         kwargs['de_kwargs'].setdefault('levels', [0.68, 0.95])
         kwargs['de_kwargs'].setdefault('n_levels_check', 1000)
-        kwargs['de_kwargs'].setdefault('smoothing_parameter', 0.1)
+        kwargs['de_kwargs'].setdefault('smoothing_parameter1D', 0.1)
+        kwargs['de_kwargs'].setdefault('smoothing_parameter2D', 0.1)
         kwargs['de_kwargs']['levels'].sort()
         kwargs['grid_kwargs'].setdefault('fontsize_ticklabels', 14)
         kwargs['grid_kwargs'].setdefault('tickformat', '{: 0.2e}')
@@ -164,7 +166,7 @@ def get_density_grid_1D(data, binedges, bincenters, lims, prob=None, method='smo
             ind = np.random.choice(prob1D.shape[0], p=prob1D, size=1000)
             data_pixel = data_pixel[0,ind]
 
-        sig_pix = get_smoothing_sigma(data_pixel, prob1D.shape[0])*de_kwargs['smoothing_parameter']
+        sig_pix = get_smoothing_sigma(data_pixel, prob1D.shape[0])*de_kwargs['smoothing_parameter1D']
         kernel = signal.gaussian(n_pix, sig_pix)
         de = scipy.ndimage.convolve(prob1D, kernel, mode='reflect')
         de = de/np.sum(de)
@@ -271,7 +273,7 @@ def get_density_grid_2D(data, ranges, columns, i, j, prob=None, method='smoothin
             ids = np.random.choice(a=len(prob), p=prob, size=1000, replace=True)
             data_panel_pixel = data_panel_pixel[:,ids]
 
-        sig_pix = get_smoothing_sigma(data_panel_pixel)*de_kwargs['smoothing_parameter']
+        sig_pix = get_smoothing_sigma(data_panel_pixel)*de_kwargs['smoothing_parameter2D']
         n_pix= int(np.ceil(sig_pix*5))
 
         kernel = np.outer(signal.gaussian(n_pix, sig_pix), signal.gaussian(n_pix, sig_pix))
@@ -490,7 +492,6 @@ def plot_triangle_maringals(data, prob=None, params='all',
                 new_data[c] = data2[c][np.random.randint(0,len(data2),len(data))]
                 empty_columns.append(c)
         data = new_data
-
     if params != 'all':
         data = data[params]
     columns = data.dtype.names
@@ -664,12 +665,20 @@ def plot_triangle_maringals(data, prob=None, params='all',
                 old_ylims = (np.inf, -np.inf)
                 old_xlims = (np.inf, -np.inf)
             if func=='contour_cl':
-                contour_cl(axc, data=data, ranges=current_ranges, columns=columns, i=i, j=j, fill=fill, color=color, de_kwargs=de_kwargs, prob=prob, density_estimation_method=density_estimation_method, label=label, alpha=find_alpha(columns[i], empty_columns))
+                contour_cl(axc, data=data, ranges=current_ranges, columns=columns,
+                           i=i, j=j, fill=fill, color=color, de_kwargs=de_kwargs,
+                           prob=prob, density_estimation_method=density_estimation_method,
+                           label=label, alpha=min( (find_alpha(columns[i], empty_columns), find_alpha(columns[j], empty_columns) )),
+                           )
             if func=='density_image':
-                density_image(axc, data=data, ranges=current_ranges, columns=columns, i=i, j=j, fill=fill, color=color, cmap=cmap, de_kwargs=de_kwargs, prob=prob,
-                              density_estimation_method=density_estimation_method, label=label, alpha_for_low_density=alpha_for_low_density, alpha_threshold=alpha_threshold)
+                density_image(axc, data=data, ranges=current_ranges, columns=columns,
+                              i=i, j=j, fill=fill, color=color, cmap=cmap, de_kwargs=de_kwargs,
+                              prob=prob, density_estimation_method=density_estimation_method,
+                              label=label, alpha_for_low_density=alpha_for_low_density,
+                              alpha_threshold=alpha_threshold)
             elif func=='scatter':
-                axc.scatter(data[columns[j]], data[columns[i]], c=color, cmap=cmap, label=label, alpha=find_alpha(columns[i], empty_columns),**scatter_kwargs)
+                axc.scatter(data[columns[j]], data[columns[i]], c=color, cmap=cmap, label=label,
+                            alpha=min( (find_alpha(columns[i], empty_columns), find_alpha(columns[j], empty_columns) )), **scatter_kwargs)
             elif func=='scatter_prob':
                 sorting = np.argsort(prob)
                 axc.scatter(data[columns[j]][sorting], data[columns[i]][sorting], c=prob[sorting], label=label, **scatter_kwargs)
@@ -843,6 +852,9 @@ def plot_triangle_maringals(data, prob=None, params='all',
     fig.align_ylabels()
     fig.align_xlabels()
 
-
+    for axc in ax.flatten():
+        for c in axc.collections:
+            if isinstance(c, mpl.collections.QuadMesh):
+                c.set_rasterized(True)
 
     return fig
