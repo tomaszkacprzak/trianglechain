@@ -57,6 +57,8 @@ class TriangleChain():
         kwargs.setdefault('grid_kwargs', {})
         kwargs.setdefault('hist_kwargs', {})
         kwargs.setdefault('labels_kwargs', {})
+        kwargs.setdefault('line_kwargs', {})
+        kwargs.setdefault('axvline_kwargs', {})
         kwargs.setdefault('density_estimation_method', 'smoothing')
         kwargs.setdefault('alpha_for_low_density', False)
         kwargs.setdefault('alpha_threshold', 0)
@@ -74,6 +76,10 @@ class TriangleChain():
         kwargs['de_kwargs'].setdefault('smoothing_parameter1D', 0.1)
         kwargs['de_kwargs'].setdefault('smoothing_parameter2D', 0.1)
         kwargs['de_kwargs']['levels'].sort()
+        if kwargs['fill']:
+            kwargs['line_kwargs'].setdefault('linewidths', 2)
+        else:
+            kwargs['line_kwargs'].setdefault('linewidths', 4)
         kwargs['grid_kwargs'].setdefault('fontsize_ticklabels', 14)
         kwargs['grid_kwargs'].setdefault('tickformat', '{: 0.2e}')
         kwargs['grid_kwargs'].setdefault('font_family', 'sans-serif')
@@ -92,8 +98,8 @@ class TriangleChain():
             f = partial(self.add_plot, plottype=fname)
             setattr(self, fname, f)
 
-    def add_plot(self, data, plottype, prob=None, color='b', cmap=plt.cm.plasma, tri='lower', plot_histograms_1D=True, label=None, show_legend=False):
-        self.fig = plot_triangle_maringals(fig=self.fig, size=self.size, func=plottype, cmap=cmap, data=data, prob=prob, tri=tri, color=color, plot_histograms_1D=plot_histograms_1D, label=label, show_legend=show_legend, **self.kwargs)
+    def add_plot(self, data, plottype, prob=None, color='b', cmap=plt.cm.plasma, tri='lower', plot_histograms_1D=True, scatter_vline_1D=False, label=None, show_legend=False):
+        self.fig = plot_triangle_maringals(fig=self.fig, size=self.size, func=plottype, cmap=cmap, data=data, prob=prob, tri=tri, color=color, plot_histograms_1D=plot_histograms_1D, scatter_vline_1D=scatter_vline_1D, label=label, show_legend=show_legend, **self.kwargs)
         return self.fig
 
 def histogram_2D(data_panel, prob, bins_x, bins_y):
@@ -343,7 +349,7 @@ def get_confidence_levels(de, levels, n_levels_check):
     return levels_contour
 
 
-def contour_cl(axc, data, ranges, columns, i, j, fill, color, de_kwargs, prob=None,  density_estimation_method='smoothing', label=None, alpha=1):
+def contour_cl(axc, data, ranges, columns, i, j, fill, color, de_kwargs, line_kwargs, prob=None,  density_estimation_method='smoothing', label=None, alpha=1):
     """
     axc - axis of the plot
     data - numpy struct array with column data
@@ -373,9 +379,9 @@ def contour_cl(axc, data, ranges, columns, i, j, fill, color, de_kwargs, prob=No
         for lvl in levels_contour:
             if fill:
                 axc.contourf(x_grid, y_grid, de, levels=[lvl, np.inf], colors=color, alpha=0.1*alpha)
-                axc.contour(x_grid, y_grid, de, levels=[lvl, np.inf], colors=color, alpha=1*alpha, linewidths=2, label=label)
+                axc.contour(x_grid, y_grid, de, levels=[lvl, np.inf], colors=color, alpha=1*alpha, label=label, **line_kwargs)
             else:
-                axc.contour(x_grid, y_grid, de, levels=[lvl, np.inf], colors=color, alpha=1*alpha, linewidths=4, label=label)
+                axc.contour(x_grid, y_grid, de, levels=[lvl, np.inf], colors=color, alpha=1*alpha, label=label, **line_kwargs)
 
 def scatter_density(axc, points1, points2, n_bins=50, lim1=None, lim2=None, norm_cols=False, n_points_scatter=-1, colorbar=False, label = None, **kwargs):
 
@@ -473,10 +479,11 @@ def plot_triangle_maringals(data, prob=None, params='all',
                             single_tri=True, color='b', cmap=plt.cm.plasma,
                             ranges={}, ticks={}, n_bins=20, fig=None, size=4,
                             fill=True, grid=False, labels=None, plot_histograms_1D=True,
+                            scatter_vline_1D=False,
                             label=None, density_estimation_method='smoothing', n_ticks=3,
                             alpha_for_low_density=False, alpha_threshold=0,
-                            subplots_kwargs={}, de_kwargs={}, hist_kwargs={}, axes_kwargs={},
-                            labels_kwargs={}, grid_kwargs={}, scatter_kwargs={}, grouping_kwargs={},
+                            subplots_kwargs={}, de_kwargs={}, hist_kwargs={}, axes_kwargs={}, line_kwargs={},
+                            labels_kwargs={}, grid_kwargs={}, scatter_kwargs={}, grouping_kwargs={}, axvline_kwargs={},
                             add_empty_plots_like=None, label_fontsize=12, show_legend=False):
     data = ensure_rec(data)
     empty_columns =[]
@@ -654,6 +661,15 @@ def plot_triangle_maringals(data, prob=None, params='all',
                 axc.set_xlim(xlims)
                 axc.set_ylim(0, max(old_ylims[1], axc.get_ylim()[1]))
 
+    if scatter_vline_1D:
+        for i in range(n_dim):
+            if columns[i]!='EMPTY':
+                axc = get_current_ax(ax, tri, i, i)
+                if np.size(data[columns[i]])>1:
+                    for d in data[columns[i]]:
+                        axc.axvline(d, color=color, **axvline_kwargs)
+                else:
+                    axc.axvline(data[columns[i]], color=color, **axvline_kwargs)
     # data
     for i, j in zip(*tri_indices):
         if columns[i]!='EMPTY' and columns[j]!='EMPTY':
@@ -666,7 +682,7 @@ def plot_triangle_maringals(data, prob=None, params='all',
                 old_xlims = (np.inf, -np.inf)
             if func=='contour_cl':
                 contour_cl(axc, data=data, ranges=current_ranges, columns=columns,
-                           i=i, j=j, fill=fill, color=color, de_kwargs=de_kwargs,
+                           i=i, j=j, fill=fill, color=color, de_kwargs=de_kwargs, line_kwargs=line_kwargs,
                            prob=prob, density_estimation_method=density_estimation_method,
                            label=label, alpha=min( (find_alpha(columns[i], empty_columns), find_alpha(columns[j], empty_columns) )),
                            )
@@ -855,6 +871,7 @@ def plot_triangle_maringals(data, prob=None, params='all',
     for axc in ax.flatten():
         for c in axc.collections:
             if isinstance(c, mpl.collections.QuadMesh):
+                #rasterize density images to avoid ugly aliasing when saving as a pdf
                 c.set_rasterized(True)
 
     return fig
