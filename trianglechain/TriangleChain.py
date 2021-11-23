@@ -596,10 +596,13 @@ def plot_triangle_maringals(data, prob=None, params='all',
         return ticks
 
     for c in columns:
-        if c == 'EMPTY':
-            current_ranges[c] = (np.nan, np.nan)
+        if c not in ranges:
+            if c == 'EMPTY':
+                current_ranges[c] = (np.nan, np.nan)
+            else:
+                current_ranges[c] = (np.amin(data[c])-1e-6, np.amax(data[c])+1e-6)
         else:
-            current_ranges[c] = (np.amin(data[c])-1e-6, np.amax(data[c])+1e-6)
+            current_ranges[c] = ranges[c]
 
     # Bins for histograms
     hist_binedges = {c: np.linspace(*current_ranges[c], num=n_bins + 1) for c in columns}
