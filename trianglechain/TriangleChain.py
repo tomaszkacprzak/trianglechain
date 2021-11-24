@@ -4,7 +4,10 @@ from matplotlib.ticker import FormatStrFormatter
 from matplotlib.colors import ListedColormap
 from functools import partial
 from scipy.stats import median_absolute_deviation
+from scipy.stats import gaussian_kde
+from scipy.optimize import minimize
 from sklearn.preprocessing import MinMaxScaler
+import pymc3
 
 class TriangleChain():
 
@@ -70,6 +73,7 @@ class TriangleChain():
         kwargs.setdefault('add_empty_plots_like', None)
         kwargs.setdefault('label_fontsize', 24)
         kwargs.setdefault('params', 'all')
+        kwargs.setdefault('label_levels1D': 0.68)
         kwargs['de_kwargs'].setdefault('n_points', kwargs['n_bins'])
         kwargs['de_kwargs'].setdefault('levels', [0.68, 0.95])
         kwargs['de_kwargs'].setdefault('n_levels_check', 1000)
@@ -98,8 +102,8 @@ class TriangleChain():
             f = partial(self.add_plot, plottype=fname)
             setattr(self, fname, f)
 
-    def add_plot(self, data, plottype, prob=None, color='b', cmap=plt.cm.plasma, tri='lower', plot_histograms_1D=True, scatter_vline_1D=False, label=None, show_legend=False):
-        self.fig = plot_triangle_maringals(fig=self.fig, size=self.size, func=plottype, cmap=cmap, data=data, prob=prob, tri=tri, color=color, plot_histograms_1D=plot_histograms_1D, scatter_vline_1D=scatter_vline_1D, label=label, show_legend=show_legend, **self.kwargs)
+    def add_plot(self, data, plottype, prob=None, color='b', cmap=plt.cm.plasma, tri='lower', plot_histograms_1D=True, show_values=False, scatter_vline_1D=False, label=None, show_legend=False):
+        self.fig = plot_triangle_maringals(fig=self.fig, size=self.size, func=plottype, cmap=cmap, data=data, prob=prob, tri=tri, color=color, plot_histograms_1D=plot_histograms_1D, show_values=show_values, scatter_vline_1D=scatter_vline_1D, label=label, show_legend=show_legend, **self.kwargs)
         return self.fig
 
 def histogram_2D(data_panel, prob, bins_x, bins_y):
@@ -479,9 +483,9 @@ def plot_triangle_maringals(data, prob=None, params='all',
                             single_tri=True, color='b', cmap=plt.cm.plasma,
                             ranges={}, ticks={}, n_bins=20, fig=None, size=4,
                             fill=True, grid=False, labels=None, plot_histograms_1D=True,
-                            scatter_vline_1D=False,
+                            show_values=False, scatter_vline_1D=False,
                             label=None, density_estimation_method='smoothing', n_ticks=3,
-                            alpha_for_low_density=False, alpha_threshold=0,
+                            alpha_for_low_density=False, alpha_threshold=0, label_levels1D=0.68,
                             subplots_kwargs={}, de_kwargs={}, hist_kwargs={}, axes_kwargs={}, line_kwargs={},
                             labels_kwargs={}, grid_kwargs={}, scatter_kwargs={}, grouping_kwargs={}, axvline_kwargs={},
                             add_empty_plots_like=None, label_fontsize=12, show_legend=False):
@@ -521,6 +525,20 @@ def plot_triangle_maringals(data, prob=None, params='all',
             ind+=1
     except:
         pass
+
+    # Axes labels
+    if labels is None:
+        labels = columns
+    else:
+        try:
+            ind = 0
+            for g in grouping_indices:
+                ind += g
+                labels = np.insert(labels, ind, 'EMPTY')
+                ind += 1
+        except:
+            pass
+
     hw_ratios = np.ones_like(columns,dtype=float)
     for i,l in enumerate(columns):
         if l=='EMPTY':
@@ -663,6 +681,30 @@ def plot_triangle_maringals(data, prob=None, params='all',
                     xlims = get_best_lims(current_ranges[columns[i]], current_ranges[columns[i]], old_xlims, old_ylims)[0]
                 axc.set_xlim(xlims)
                 axc.set_ylim(0, max(old_ylims[1], axc.get_ylim()[1]))
+                if show_values:
+                    kde = gaussian_kde(data[columns[i]])
+                    f = lambda x: -kde(x)
+                    res = minimize(f,np.mean(data[columns[i]]))
+                    mode = res.x[0]
+                    lower, upper = pymc3.stats.hdi(data[columns[i]],label_levels1D)
+                    uncertainty = (upper-lower)/2
+                    first_significant_digit = math.floor(np.log10(uncertainty))
+                    u = round_to_significant_digits(uncertainty, 3) * 10**(-first_significant_digit+2)
+                    if u>100 and u<354:
+                        significant_digits_to_round = 2
+                    elif u<949:
+                        significant_digits_to_round = 1
+                    else:
+                        significant_digits_to_round = 2
+                        uncertainty = 1000 /10**(-first_significant_digit+2)
+                    rounding_digit = - (math.floor(np.log10(uncertainty)) - significant_digits_to_round+1)
+                    if rounding_digit>0:
+                        frmt = '{{:.{}f}}'.format(rounding_digit)
+                    else:
+                        frmt = '{:d}'
+                    str_mode = f'{frmt}'.format(np.around(mode, rounding_digit))
+                    axc.set_title(r'{} $= {}^{{+{} }}_{{-{} }}$'.format(labels[i], str_mode, np.around(upper-mode, rounding_digit), np.around(mode-lower, rounding_digit) ),
+                                  fontsize=grid_kwargs['fontsize_ticklabels'])
 
     if scatter_vline_1D:
         for i in range(n_dim):
@@ -752,14 +794,14 @@ def plot_triangle_maringals(data, prob=None, params='all',
                     axc = get_current_ax(ax, tri, i, j)
                     axc.yaxis.tick_left()
                     axc.set_yticks(get_ticks(i))
-                    #axc.tick_params(direction="in")
+                    axc.tick_params(direction="in")
         for i in range(1, n_dim): # rows
             for j in range(0,i+1): # columns
                 if columns[i]!='EMPTY' and columns[j]!='EMPTY':
                     axc = get_current_ax(ax, tri, i, j)
                     axc.xaxis.tick_bottom()
                     axc.set_xticks(get_ticks(j))
-                    #axc.tick_params(direction="in")
+                    axc.tick_params(direction="in")
     elif tri[0]=='u':
         for i in range(0, n_dim-1): # rows
             for j in range(i+1, n_dim): # columns
@@ -767,14 +809,14 @@ def plot_triangle_maringals(data, prob=None, params='all',
                     axc = get_current_ax(ax, tri, i, j)
                     axc.yaxis.tick_right()
                     axc.set_yticks(get_ticks(i))
-                    #axc.tick_params(direction="in")
+                    axc.tick_params(direction="in")
         for i in range(0, n_dim-1): # rows
             for j in range(0, n_dim): # columns
                 if columns[i]!='EMPTY' and columns[j]!='EMPTY':
                     axc = get_current_ax(ax, tri, i, j)
                     axc.xaxis.tick_top()
                     axc.set_xticks(get_ticks(j))
-                #axc.tick_params(direction="in")
+                    axc.tick_params(direction="in")
 
 
     def fmt_e(x):
@@ -825,18 +867,6 @@ def plot_triangle_maringals(data, prob=None, params='all',
                     axc = get_current_ax(ax, tri, i, j)
                     axc.grid(grid)
 
-    # Axes labels
-    if labels is None:
-        labels = columns
-    else:
-        try:
-            ind = 0
-            for g in grouping_indices:
-                ind += g
-                labels = np.insert(labels, ind, 'EMPTY')
-                ind += 1
-        except:
-            pass
 
     legend_lines, legend_labels = ax[0,0].get_legend_handles_labels()
     if tri[0]=='l':
