@@ -15,19 +15,22 @@ class TriangleChain(BaseChain):
 
         self.add_plotting_functions(self.add_plot)
 
-    def add_plot(self, data, plottype, prob=None, color='b', cmap=plt.cm.plasma, tri='lower', plot_histograms_1D=True):
+    def add_plot(self, data, plottype, prob=None, color='b', cmap=plt.cm.plasma, tri='lower', plot_histograms_1D=True, **kwargs):
+
+        from copy import deepcopy
+        kwargs_copy = deepcopy(self.kwargs)
+        kwargs_copy.update(kwargs)
         
-        self.fig = plot_triangle_maringals(fig=self.fig, 
-                                           size=self.size,
-                                           func=plottype,
-                                           cmap=cmap,
-                                           data=data,
-                                           prob=prob,
-                                           tri=tri,
-                                           color=color,
-                                           plot_histograms_1D=plot_histograms_1D, 
-                                           **self.kwargs)
-        return self.fig
+        self.fig, self.ax = plot_triangle_maringals(fig=self.fig, 
+                                                    size=self.size,
+                                                    func=plottype,
+                                                    cmap=cmap,
+                                                    data=data,
+                                                    prob=prob,
+                                                    tri=tri,
+                                                    color=color, 
+                                                    **kwargs_copy)
+        return self.fig, self.ax
 
 def plot_triangle_maringals(data, prob=None, func='contour_cl', tri='lower',
                             single_tri=True, color='b', cmap=plt.cm.plasma,
@@ -36,11 +39,11 @@ def plot_triangle_maringals(data, prob=None, func='contour_cl', tri='lower',
                             density_estimation_method='smoothing', n_ticks=3,
                             alpha_for_low_density=False, alpha_threshold=0,
                             subplots_kwargs={}, de_kwargs={}, hist_kwargs={}, axes_kwargs={},
-                            labels_kwargs={}, grid_kwargs={}, scatter_kwargs={}, grouping_kwargs={}):
+                            labels_kwargs={}, grid_kwargs={}, scatter_kwargs={}, grouping_kwargs={},
+                            orientation=None):
     data = ensure_rec(data)
 
     columns = data.dtype.names
-
 
     try:
         grouping_indices = np.cumsum(np.asarray(grouping_kwargs['n_per_group']))[:-1]
@@ -145,7 +148,12 @@ def plot_triangle_maringals(data, prob=None, func='contour_cl', tri='lower',
         return axc
 
     # Plot histograms
-    if plot_histograms_1D:
+    if not plot_histograms_1D:
+        for i in range(n_dim):
+            axc = get_current_ax(ax, tri, i, i)
+            axc.set_visible(False)
+
+    else:
         for i in range(n_dim):
             if columns[i]!='EMPTY':
                 prob1D = get_density_grid_1D(data=data[columns[i]],
@@ -200,7 +208,8 @@ def plot_triangle_maringals(data, prob=None, func='contour_cl', tri='lower',
         axc.set_yticks([])
         axc.set_xticklabels([])
         axc.set_yticklabels([])
-        axc.grid(grid)
+        axc.grid(grid, zorder=0, linestyle='--')
+        axc.set_axisbelow(True)
 
 
     # ticks
@@ -276,25 +285,28 @@ def plot_triangle_maringals(data, prob=None, func='contour_cl', tri='lower',
             for j in range(i):
                 if columns[i]!='EMPTY' and columns[j]!='EMPTY':
                     axc = get_current_ax(ax, tri, i, j)
-                    axc.grid(grid)
+                    axc.grid(grid, zorder=0, linestyle='--')
+                    axc.set_axisbelow(True)
     elif tri[0]=='u':
         for i in range(0,n_dim-1):
             for j in range(i+1,n_dim):
                 if columns[i]!='EMPTY' and columns[j]!='EMPTY':
                     axc = get_current_ax(ax, tri, i, j)
-                    axc.grid(grid)
+                    axc.grid(grid, zorder=0, linestyle='--')
+                    axc.set_axisbelow(True)
 
     # Axes labels
     if labels is None:
-        labels = columns
-    else:
-        if len(labels.keys()) == 0:
-            labels = columns
-        else:   
-            try:
-                labels = np.insert(labels, grouping_indices + 1, 'EMPTY')
-            except:
-                pass
+        labels = {c:c for c in columns}
+    # else:
+    #     labels
+        # if len(labels.keys()) == 0:
+        #     labels = columns
+        # else:   
+        #     try:
+        #         labels = np.insert(labels, grouping_indices + 1, 'EMPTY')
+        #     except:
+        #         pass
 
 
     if tri[0]=='l':
@@ -304,22 +316,22 @@ def plot_triangle_maringals(data, prob=None, func='contour_cl', tri='lower',
                 axc = get_current_ax(ax, tri, i, 0)
 
                 try:
-                    axc.set_ylabel(labels[i], **labels_kwargs, rotation=90, labelpad=labelpad)
+                    axc.set_ylabel(labels[columns[i]], **labels_kwargs, rotation=90, labelpad=labelpad)
                 except:
                     import ipdb; ipdb.set_trace()
                 axc.yaxis.set_label_position("left")
                 axc = get_current_ax(ax, tri, n, i)
-                axc.set_xlabel(labels[i], **labels_kwargs, rotation=0, labelpad=labelpad)
+                axc.set_xlabel(labels[columns[i]], **labels_kwargs, rotation=0, labelpad=labelpad)
                 axc.xaxis.set_label_position("bottom")
     elif tri[0]=='u':
         labelpad = 20
         for i in range(n_dim):
             if columns[i]!='EMPTY':
                 axc = get_current_ax(ax, tri, i, n)
-                axc.set_ylabel(labels[i], **labels_kwargs, rotation=90, labelpad=labelpad)
+                axc.set_ylabel(labels[columns[i]], **labels_kwargs, rotation=90, labelpad=labelpad)
                 axc.yaxis.set_label_position("right")
                 axc = get_current_ax(ax, tri, 0, i)
-                axc.set_xlabel(labels[i], **labels_kwargs, rotation=0, labelpad=labelpad)
+                axc.set_xlabel(labels[columns[i]], **labels_kwargs, rotation=0, labelpad=labelpad)
                 axc.xaxis.set_label_position("top")
 
 
@@ -328,5 +340,5 @@ def plot_triangle_maringals(data, prob=None, func='contour_cl', tri='lower',
     fig.align_ylabels()
     fig.align_xlabels()
 
-    return fig
+    return fig, ax
 

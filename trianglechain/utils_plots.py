@@ -4,6 +4,7 @@ from matplotlib.colors import ListedColormap
 from functools import partial
 from scipy.stats import median_absolute_deviation
 from sklearn.preprocessing import MinMaxScaler
+import matplotlib
 
 
 def safe_normalise(p):
@@ -277,7 +278,7 @@ def density_image(axc, data, ranges, columns, i, j, fill, color, cmap, de_kwargs
 
 def get_confidence_levels(de, levels, n_levels_check):
 
-    lvl_max = 0.9
+    lvl_max = 0.99
     levels_check = np.linspace(0, np.amax(de)*lvl_max, n_levels_check)
     frac_levels = np.zeros_like(levels_check)
 
@@ -292,7 +293,7 @@ def get_confidence_levels(de, levels, n_levels_check):
     return levels_contour
 
 
-def contour_cl(axc, data, ranges, columns, i, j, fill, color, de_kwargs, prob=None,  density_estimation_method='smoothing'):
+def contour_cl(axc, data, ranges, columns, i, j, fill, color, de_kwargs, prob=None,  density_estimation_method='smoothing', lw=2, alpha=0.4):
     """
     axc - axis of the plot
     data - numpy struct array with column data
@@ -304,6 +305,19 @@ def contour_cl(axc, data, ranges, columns, i, j, fill, color, de_kwargs, prob=No
     de_kwargs - dict with kde settings, has to have n_points, n_levels_check, levels, defaults below
     prob - if not None, then probability attached to the samples, in that case samples are treated as grid not a chain
     """
+
+    def _get_paler_colors(color_rgb, n_levels, pale_factor=None):
+
+        solid_contour_palefactor = 0.6
+
+        # convert a color into an array of colors for used in contours
+        color = matplotlib.colors.colorConverter.to_rgb(color_rgb)
+        pale_factor = pale_factor or solid_contour_palefactor
+        cols = [color]
+        for _ in range(1, n_levels):
+            cols = [[c * (1 - pale_factor) + pale_factor for c in cols[0]]] + cols
+        return cols
+
 
     de, x_grid, y_grid = get_density_grid_2D(i=i, j=j,
                                              data=data,
@@ -318,13 +332,14 @@ def contour_cl(axc, data, ranges, columns, i, j, fill, color, de_kwargs, prob=No
     with warnings.catch_warnings():
         # this will suppress all warnings in this block
         warnings.simplefilter("ignore")
+        colors = _get_paler_colors(color_rgb=color, n_levels=len(de_kwargs['levels']))
 
-        for lvl in levels_contour:
+        for l, lvl in enumerate(levels_contour):
             if fill:
-                axc.contourf(x_grid, y_grid, de, levels=[lvl, np.inf], colors=color, alpha=0.1)
-                axc.contour(x_grid, y_grid, de, levels=[lvl, np.inf], colors=color, alpha=1, linewidths=2)
+                axc.contourf(x_grid, y_grid, de, levels=[lvl, np.inf], colors=[colors[l]], alpha=1)
+                # axc.contour(x_grid, y_grid, de, levels=[lvl, np.inf], colors=[colors[l]], alpha=1, linewidths=1)
             else:
-                axc.contour(x_grid, y_grid, de, levels=[lvl, np.inf], colors=color, alpha=1, linewidths=4)
+                axc.contour(x_grid, y_grid, de, levels=[lvl, np.inf], colors=color, alpha=1, linewidths=lw*2)
 
 def scatter_density(axc, points1, points2, n_bins=50, lim1=None, lim2=None, norm_cols=False, n_points_scatter=-1, colorbar=False, **kwargs):
 

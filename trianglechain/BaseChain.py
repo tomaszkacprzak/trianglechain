@@ -51,7 +51,7 @@ class BaseChain():
 
         kwargs.setdefault('ticks', {})
         kwargs.setdefault('ranges', {})
-        kwargs.setdefault('labels', {})
+        kwargs.setdefault('labels', None)
         kwargs.setdefault('n_bins', 100)
         kwargs.setdefault('de_kwargs', {})
         kwargs.setdefault('grid_kwargs', {})
@@ -68,7 +68,7 @@ class BaseChain():
         kwargs.setdefault('orientation', 'horizontal')
         kwargs['de_kwargs'].setdefault('n_points', kwargs['n_bins'])
         kwargs['de_kwargs'].setdefault('levels', [0.68, 0.95])
-        kwargs['de_kwargs'].setdefault('n_levels_check', 1000)
+        kwargs['de_kwargs'].setdefault('n_levels_check', 2000)
         kwargs['de_kwargs'].setdefault('smoothing_sigma', None)
         kwargs['de_kwargs']['levels'].sort()
         kwargs['grid_kwargs'].setdefault('fontsize_ticklabels', 14)
