@@ -22,8 +22,7 @@ def round_to_significant_digits(number, significant_digits):
         return number
 
 
-def find_optimal_ticks(range_of_param, n_ticks = 3):
-
+def find_optimal_ticks(range_of_param, n_ticks=3):
     diff = range_of_param[1]-range_of_param[0]
     ticks = np.zeros(n_ticks)
 
@@ -31,23 +30,36 @@ def find_optimal_ticks(range_of_param, n_ticks = 3):
     diff_range = diff/(n_ticks+1)
     center = range_of_param[0] + diff/2
 
-    # nicely rounded tick interval
-    rounded_diff_range = round_to_significant_digits(diff_range, 1)
-    if abs(rounded_diff_range-diff_range)/diff_range > 0.199:
-        rounded_diff_range = round_to_significant_digits(diff_range, 2)
+    #first significant digit for rounding
+    significant_digit = math.floor(np.log10(diff_range))
 
-    # decimal until which ticks are rounded
-    decimal_to_round = math.floor(np.log10(rounded_diff_range))
-    if n_ticks&2==0:
-        decimal_to_round-=1
-
-    # nicely rounded center value
-    rounded_center = np.around(center, -decimal_to_round)
-
-    start = rounded_center - (n_ticks-1)/2 * rounded_diff_range
-    for i in range(n_ticks):
-        ticks[i] = np.around(start + i*rounded_diff_range, -decimal_to_round)
+    for i in range(10*n_ticks):
+        rounded_center = np.around(center, -significant_digit + i)
+        if abs(rounded_center-center)/diff < 0.05:
+            break
+    for i in range(10*n_ticks):
+        rounded_diff_range = np.around(diff_range, -significant_digit)
+        start = rounded_center - (n_ticks-1)/2 * rounded_diff_range
+        for i in range(n_ticks):
+            if n_ticks%2==0:
+                ticks[i] = np.around(start + i*rounded_diff_range, -significant_digit+1)
+            else:
+                ticks[i] = np.around(start + i*rounded_diff_range, -significant_digit)
+        #check if ticks are inside parameter space and not too close to each other
+        if (ticks[0]<range_of_param[0]) or (ticks[-1]>range_of_param[1]) or ((ticks[0]-range_of_param[0])>1.2*rounded_diff_range) or ((range_of_param[1]-ticks[-1])>1.2*rounded_diff_range):
+            significant_digit-=1
+        else:
+            break
+    if significant_digit == math.floor(np.log10(diff_range)) - 10*n_ticks:
+        for i in range(n_ticks):
+            start = center - (n_ticks-1)/2 * diff_range
+            ticks[i] = np.around(start + i*diff_range, -significant_digit)
     return ticks
+
+def get_best_lims(new_xlims, new_ylims, old_xlims, old_ylims):
+    xlims = (np.min([new_xlims[0], old_xlims[0]]) , np.max([new_xlims[1], old_xlims[1]]))
+    ylims = (np.min([new_ylims[0], old_ylims[0]]) , np.max([new_ylims[1], old_ylims[1]]))
+    return xlims, ylims
 
 def histogram_2D(data_panel, prob, bins_x, bins_y):
 
@@ -122,7 +134,7 @@ def get_density_grid_1D(data, binedges, bincenters, lims, prob=None, method='smo
             ind = np.random.choice(prob1D.shape[0], p=prob1D, size=1000)
             data_pixel = data_pixel[0,ind]
 
-        sig_pix = get_smoothing_sigma(data_pixel, prob1D.shape[0])
+        sig_pix = get_smoothing_sigma(data_pixel, prob1D.shape[0])*de_kwargs['smoothing_parameter1D']
         n_pix = max(3,int(np.ceil(sig_pix*10))) # 10 sigma smoothing
         kernel = signal.gaussian(n_pix, sig_pix)
         de = scipy.ndimage.convolve(prob1D, kernel, mode='reflect')
@@ -172,10 +184,10 @@ def get_smoothing_sigma(x, max_points=5000):
     if x.shape[0]==2:
         pca = PCA()
         pca.fit(x.T)
-        sig_pix = np.sqrt(pca.explained_variance_[-1])*0.2
+        sig_pix = np.sqrt(pca.explained_variance_[-1])
     elif x.shape[0]==1:
         mad = median_absolute_deviation(x, axis=1)
-        sig_pix = np.min(mad) * 0.1
+        sig_pix = np.min(mad)
 
     return sig_pix
 
@@ -221,7 +233,7 @@ def get_density_grid_2D(data, ranges, columns, i, j, prob=None, method='smoothin
             data_panel_pixel = data_panel_pixel[:,ids]
 
         if de_kwargs['smoothing_sigma'] is None:
-            sig_pix = get_smoothing_sigma(data_panel_pixel)
+            sig_pix = get_smoothing_sigma(data_panel_pixel)*de_kwargs['smoothing_parameter2D']
             n_pix= int(np.ceil(sig_pix*5))
         else:
             sig_pix = de_kwargs['smoothing_sigma']
@@ -255,7 +267,7 @@ def get_density_grid_2D(data, ranges, columns, i, j, prob=None, method='smoothin
     de = safe_normalise(de)
     return de, x_grid_centers, y_grid_centers
 
-def density_image(axc, data, ranges, columns, i, j, fill, color, cmap, de_kwargs, prob=None, density_estimation_method='smoothing', alpha_for_low_density=False, alpha_threshold = 0):
+def density_image(axc, data, ranges, columns, i, j, fill, color, cmap, de_kwargs, prob=None, density_estimation_method='smoothing', label=None, alpha_for_low_density=False, alpha_threshold = 0):
     """
     axc - axis of the plot
     data - numpy struct array with column data
@@ -274,7 +286,7 @@ def density_image(axc, data, ranges, columns, i, j, fill, color, cmap, de_kwargs
         cmap_threshold = int(cmap_plt.N * alpha_threshold)
         my_cmap[:cmap_threshold,-1] = np.linspace(0, 1, cmap_threshold)
         cmap = ListedColormap(my_cmap)
-    axc.pcolormesh(x_grid, y_grid, kde, cmap=cmap, shading='auto')
+    axc.pcolormesh(x_grid, y_grid, kde, cmap=cmap, vmin=0, label=label, shading='auto')
 
 def get_confidence_levels(de, levels, n_levels_check):
 
@@ -293,7 +305,7 @@ def get_confidence_levels(de, levels, n_levels_check):
     return levels_contour
 
 
-def contour_cl(axc, data, ranges, columns, i, j, fill, color, de_kwargs, prob=None,  density_estimation_method='smoothing', lw=2, alpha=0.4):
+def contour_cl(axc, data, ranges, columns, i, j, fill, color, de_kwargs, line_kwargs, prob=None,  density_estimation_method='smoothing', label=None, alpha=1):
     """
     axc - axis of the plot
     data - numpy struct array with column data
@@ -336,12 +348,12 @@ def contour_cl(axc, data, ranges, columns, i, j, fill, color, de_kwargs, prob=No
 
         for l, lvl in enumerate(levels_contour):
             if fill:
-                axc.contourf(x_grid, y_grid, de, levels=[lvl, np.inf], colors=[colors[l]], alpha=1)
+                axc.contourf(x_grid, y_grid, de, levels=[lvl, np.inf], colors=[colors[l]], label=label, alpha=alpha, **line_kwargs)
                 # axc.contour(x_grid, y_grid, de, levels=[lvl, np.inf], colors=[colors[l]], alpha=1, linewidths=1)
             else:
-                axc.contour(x_grid, y_grid, de, levels=[lvl, np.inf], colors=color, alpha=1, linewidths=lw*2)
+                axc.contour(x_grid, y_grid, de, levels=[lvl, np.inf], colors=color, alpha=alpha, label=label, **line_kwargs)
 
-def scatter_density(axc, points1, points2, n_bins=50, lim1=None, lim2=None, norm_cols=False, n_points_scatter=-1, colorbar=False, **kwargs):
+def scatter_density(axc, points1, points2, n_bins=50, lim1=None, lim2=None, norm_cols=False, n_points_scatter=-1, colorbar=False, label=None, **kwargs):
 
     import numpy as np
     if lim1 is None:
@@ -387,11 +399,11 @@ def scatter_density(axc, points1, points2, n_bins=50, lim1=None, lim2=None, norm
     if n_points_scatter>0:
         select = np.random.choice(len(points1_box), n_points_scatter)
         c = griddata(points, hv.T.flatten(), xi[select,:], method='linear', rescale=True, fill_value=np.min(hv) )
-        sc = axc.scatter(points1_box[select], points2_box[select], c=c, **kwargs)
+        sc = axc.scatter(points1_box[select], points2_box[select], c=c, label=label, **kwargs)
     else:
         c = griddata(points, hv.T.flatten(), xi, method='linear', rescale=True, fill_value=np.min(hv) )
         sorting = np.argsort(c)
-        sc = axc.scatter(points1_box[sorting], points2_box[sorting], c=c[sorting],  **kwargs)
+        sc = axc.scatter(points1_box[sorting], points2_box[sorting], c=c[sorting], label=label,  **kwargs)
 
     if colorbar:
         plt.gcf().colorbar(sc, ax=axc)
@@ -431,3 +443,8 @@ def ensure_rec(data, column_prefix=''):
             rec[f'{column_prefix}{i}'] = data[:,i]
         return rec
 
+def find_alpha(column, empty_columns):
+    if column in empty_columns:
+        return 0
+    else:
+        return 1
