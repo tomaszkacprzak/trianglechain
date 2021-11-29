@@ -73,7 +73,7 @@ class TriangleChain():
         kwargs.setdefault('add_empty_plots_like', None)
         kwargs.setdefault('label_fontsize', 24)
         kwargs.setdefault('params', 'all')
-        kwargs.setdefault('label_levels1D': 0.68)
+        kwargs.setdefault('label_levels1D', 0.68)
         kwargs['de_kwargs'].setdefault('n_points', kwargs['n_bins'])
         kwargs['de_kwargs'].setdefault('levels', [0.68, 0.95])
         kwargs['de_kwargs'].setdefault('n_levels_check', 1000)
