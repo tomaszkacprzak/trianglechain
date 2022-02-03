@@ -348,8 +348,8 @@ def contour_cl(axc, data, ranges, columns, i, j, fill, color, de_kwargs, line_kw
 
         for l, lvl in enumerate(levels_contour):
             if fill:
-                axc.contourf(x_grid, y_grid, de, levels=[lvl, np.inf], colors=[colors[l]], label=label, alpha=alpha, **line_kwargs)
-                # axc.contour(x_grid, y_grid, de, levels=[lvl, np.inf], colors=[colors[l]], alpha=1, linewidths=1)
+                axc.contourf(x_grid, y_grid, de, levels=[lvl, np.inf], colors=[colors[l]], label=label, alpha=0.85*alpha, **line_kwargs)
+                #axc.contour(x_grid, y_grid, de, levels=[lvl, np.inf], colors=[colors[l]], alpha=0.5*alpha, **line_kwargs)
             else:
                 axc.contour(x_grid, y_grid, de, levels=[lvl, np.inf], colors=color, alpha=alpha, label=label, **line_kwargs)
 

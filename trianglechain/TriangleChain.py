@@ -10,6 +10,7 @@ from sklearn.preprocessing import MinMaxScaler
 from trianglechain.utils_plots import *
 from trianglechain.BaseChain import BaseChain
 import pymc3
+from tqdm import tqdm
 
 class TriangleChain(BaseChain):
 
@@ -226,7 +227,7 @@ def plot_triangle_maringals(data, prob=None, params='all',
                 else:
                     axc.axvline(data[columns[i]], color=color, **axvline_kwargs)
     # data
-    for i, j in zip(*tri_indices):
+    for i, j in tqdm(zip(*tri_indices), total=len(tri_indices[0])):
         if columns[i]!='EMPTY' and columns[j]!='EMPTY':
             axc = get_current_ax(ax, tri, i, j)
             if axc.lines or axc.collections:
