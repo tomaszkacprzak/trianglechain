@@ -9,7 +9,6 @@ from scipy.optimize import minimize
 from sklearn.preprocessing import MinMaxScaler
 from trianglechain.utils_plots import *
 from trianglechain.BaseChain import BaseChain
-import pymc3
 from tqdm import tqdm
 
 class TriangleChain(BaseChain):
@@ -193,11 +192,12 @@ def plot_triangle_maringals(data, prob=None, params='all',
                 axc.set_xlim(xlims)
                 axc.set_ylim(0, max(old_ylims[1], axc.get_ylim()[1]))
                 if show_values:
+                    import arviz
                     kde = gaussian_kde(data[columns[i]])
                     f = lambda x: -kde(x)
                     res = minimize(f,np.mean(data[columns[i]]))
                     mode = res.x[0]
-                    lower, upper = pymc3.stats.hdi(data[columns[i]],label_levels1D)
+                    lower, upper = arviz.hdi(data[columns[i]],label_levels1D)
                     uncertainty = (upper-lower)/2
                     first_significant_digit = math.floor(np.log10(uncertainty))
                     u = round_to_significant_digits(uncertainty, 3) * 10**(-first_significant_digit+2)
