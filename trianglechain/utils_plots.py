@@ -97,7 +97,7 @@ def histogram_1D(data, prob, binedges):
         hist_counts, _ = np.histogram(data, bins=binedges)
         hist_prob, _ = np.histogram(data, bins=binedges, weights=prob)
         prob1D = hist_prob/hist_counts.astype(np.float)
-        prob1D[hist_counts==0]
+        prob1D[hist_counts==0]=0
 
     prob1D = safe_normalise(prob1D)
     prob1D = np.ma.array(prob1D, mask=prob1D==0)
