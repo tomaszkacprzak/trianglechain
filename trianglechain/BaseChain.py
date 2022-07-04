@@ -57,6 +57,8 @@ class BaseChain():
         kwargs.setdefault('grid_kwargs', {})
         kwargs.setdefault('hist_kwargs', {})
         kwargs.setdefault('labels_kwargs', {})
+        kwargs.setdefault('line_kwargs', {})
+        kwargs.setdefault('axvline_kwargs', {})
         kwargs.setdefault('density_estimation_method', 'smoothing')
         kwargs.setdefault('alpha_for_low_density', False)
         kwargs.setdefault('alpha_threshold', 0)
@@ -65,12 +67,22 @@ class BaseChain():
         kwargs.setdefault('grid', False)
         kwargs.setdefault('scatter_kwargs', {})
         kwargs.setdefault('grouping_kwargs', {})
+        kwargs.setdefault('add_empty_plots_like', None)
+        kwargs.setdefault('label_fontsize', 24)
+        kwargs.setdefault('params', 'all')
+        kwargs.setdefault('label_levels1D', 0.68)
         kwargs.setdefault('orientation', 'horizontal')
         kwargs['de_kwargs'].setdefault('n_points', kwargs['n_bins'])
         kwargs['de_kwargs'].setdefault('levels', [0.68, 0.95])
         kwargs['de_kwargs'].setdefault('n_levels_check', 2000)
         kwargs['de_kwargs'].setdefault('smoothing_sigma', None)
+        kwargs['de_kwargs'].setdefault('smoothing_parameter1D', 0.1)
+        kwargs['de_kwargs'].setdefault('smoothing_parameter2D', 0.2)
         kwargs['de_kwargs']['levels'].sort()
+        if kwargs['fill']:
+            kwargs['line_kwargs'].setdefault('linewidths', 2)
+        else:
+            kwargs['line_kwargs'].setdefault('linewidths', 4)
         kwargs['grid_kwargs'].setdefault('fontsize_ticklabels', 14)
         kwargs['grid_kwargs'].setdefault('tickformat', '{: 0.2e}')
         kwargs['grid_kwargs'].setdefault('font_family', 'sans-serif')
@@ -90,5 +102,3 @@ class BaseChain():
         for fname in self.funcs:
             f = partial(func_add_plot, plottype=fname)
             setattr(self, fname, f)
-
-
