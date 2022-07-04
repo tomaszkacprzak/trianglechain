@@ -9,7 +9,11 @@ from scipy.optimize import minimize
 from sklearn.preprocessing import MinMaxScaler
 from trianglechain.utils_plots import *
 from trianglechain.BaseChain import BaseChain
-from tqdm import tqdm
+from trianglechain import limits, bestfit
+from tqdm import tqdm, trange
+
+from ekit import logger as logger_utils
+LOGGER = logger_utils.init_logger(__name__)
 
 class TriangleChain(BaseChain):
 
@@ -41,9 +45,10 @@ def plot_triangle_maringals(data, prob=None, params='all',
                             single_tri=True, color='b', cmap=plt.cm.plasma,
                             ranges={}, ticks={}, n_bins=20, fig=None, size=4,
                             fill=True, grid=False, labels=None, plot_histograms_1D=True,
-                            show_values=False, scatter_vline_1D=False,
-                            label=None, density_estimation_method='smoothing', n_ticks=3,
-                            alpha_for_low_density=False, alpha_threshold=0, label_levels1D=0.68,
+                            show_values=False, bestfit_method='mode', levels_method='hdi',
+                            credible_interval=0.68, lnprobs=None,
+                            scatter_vline_1D=False, label=None, density_estimation_method='smoothing',
+                            n_ticks=3, alpha_for_low_density=False, alpha_threshold=0, label_levels1D=0.68,
                             subplots_kwargs={}, de_kwargs={}, hist_kwargs={}, axes_kwargs={}, line_kwargs={},
                             labels_kwargs={}, grid_kwargs={}, scatter_kwargs={}, grouping_kwargs={}, axvline_kwargs={},
                             add_empty_plots_like=None, label_fontsize=12, show_legend=False, orientation=None):
@@ -163,7 +168,11 @@ def plot_triangle_maringals(data, prob=None, params='all',
             if not axc.lines or not axc.collections:
                 axc.set_visible(False)
     else:
-        for i in range(n_dim):
+        disable_progress_bar = True
+        if show_values:
+            LOGGER.info('Computing bestfits and levels')
+            disable_progress_bar = False
+        for i in trange(n_dim, disable=disable_progress_bar):
             if columns[i]!='EMPTY':
                 prob1D = get_density_grid_1D(data=data[columns[i]],
                                             prob=prob,
@@ -192,12 +201,8 @@ def plot_triangle_maringals(data, prob=None, params='all',
                 axc.set_xlim(xlims)
                 axc.set_ylim(0, max(old_ylims[1], axc.get_ylim()[1]))
                 if show_values:
-                    import arviz
-                    kde = gaussian_kde(data[columns[i]])
-                    f = lambda x: -kde(x)
-                    res = minimize(f,np.mean(data[columns[i]]))
-                    mode = res.x[0]
-                    lower, upper = arviz.hdi(data[columns[i]],label_levels1D)
+                    lower, upper = limits.get_levels(data[columns[i]], lnprobs, levels_method, credible_interval)
+                    bf = bestfit.get_bestfit(data[columns[i]], lnprobs, bestfit_method)
                     uncertainty = (upper-lower)/2
                     first_significant_digit = math.floor(np.log10(uncertainty))
                     u = round_to_significant_digits(uncertainty, 3) * 10**(-first_significant_digit+2)
@@ -213,9 +218,11 @@ def plot_triangle_maringals(data, prob=None, params='all',
                         frmt = '{{:.{}f}}'.format(rounding_digit)
                     else:
                         frmt = '{:.0f}'
-                    str_mode = f'{frmt}'.format(np.around(mode, rounding_digit))
-                    axc.set_title(r'{} $= {}^{{+{} }}_{{-{} }}$'.format(labels[i], str_mode, np.around(upper-mode, rounding_digit), np.around(mode-lower, rounding_digit) ),
-                                  fontsize=grid_kwargs['fontsize_ticklabels'])
+                    str_bf = f'{frmt}'.format(np.around(bf, rounding_digit))
+                    low = f'{frmt}'.format(np.around(bf-lower, rounding_digit))
+                    up = f'{frmt}'.format(np.around(upper-bf, rounding_digit))
+                    axc.set_title(r'{} $= {}^{{+{} }}_{{-{} }}$'.format(labels[i], str_bf, up, low),
+                                  fontsize=label_fontsize)
 
     if scatter_vline_1D:
         for i in range(n_dim):
