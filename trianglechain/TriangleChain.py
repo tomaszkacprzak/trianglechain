@@ -16,7 +16,7 @@ from trianglechain.utils_plots import (
 )
 from trianglechain.BaseChain import BaseChain
 from trianglechain import limits, bestfit
-from tqdm import tqdm, trange
+from tqdm.auto import tqdm, trange
 
 from ekit import logger as logger_utils
 

@@ -1,7 +1,7 @@
 import numpy as np
 from scipy.optimize import minimize
 from scipy.stats import gaussian_kde
-from tqdm import trange
+from tqdm.auto import trange
 
 from ekit import logger as logger_utils
 
