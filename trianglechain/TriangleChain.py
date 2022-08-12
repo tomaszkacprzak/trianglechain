@@ -154,8 +154,8 @@ def plot_triangle_maringals(
             pass
 
     hw_ratios = np.ones_like(columns, dtype=float)
-    for i, label in enumerate(columns):
-        if label == "EMPTY":
+    for i, lab in enumerate(columns):
+        if lab == "EMPTY":
             hw_ratios[i] = grouping_kwargs["empty_ratio"]
 
     n_dim = len(columns)
