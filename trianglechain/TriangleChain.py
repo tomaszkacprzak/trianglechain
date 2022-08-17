@@ -88,6 +88,8 @@ def plot_triangle_maringals(
     label=None,
     density_estimation_method="smoothing",
     n_ticks=3,
+    alpha1D=1,
+    alpha2D=1,
     alpha_for_low_density=False,
     alpha_threshold=0,
     label_levels1D=0.68,
@@ -271,7 +273,7 @@ def plot_triangle_maringals(
                     prob1D,
                     "-",
                     color=color_hist,
-                    alpha=find_alpha(columns[i], empty_columns),
+                    alpha=find_alpha(columns[i], empty_columns, alpha1D),
                     label=label,
                     **hist_kwargs,
                 )
@@ -280,7 +282,7 @@ def plot_triangle_maringals(
                         hist_bincenters[columns[i]],
                         np.zeros_like(prob1D),
                         prob1D,
-                        alpha=0.1 * find_alpha(columns[i], empty_columns),
+                        alpha=0.1 * find_alpha(columns[i], empty_columns, alpha1D),
                         color=color_hist,
                     )
                 try:
@@ -379,8 +381,8 @@ def plot_triangle_maringals(
                     label=label,
                     alpha=min(
                         (
-                            find_alpha(columns[i], empty_columns),
-                            find_alpha(columns[j], empty_columns),
+                            find_alpha(columns[i], empty_columns, alpha2D),
+                            find_alpha(columns[j], empty_columns, alpha2D),
                         )
                     ),
                 )
@@ -411,8 +413,8 @@ def plot_triangle_maringals(
                     label=label,
                     alpha=min(
                         (
-                            find_alpha(columns[i], empty_columns),
-                            find_alpha(columns[j], empty_columns),
+                            find_alpha(columns[i], empty_columns, alpha2D),
+                            find_alpha(columns[j], empty_columns, alpha2D),
                         )
                     ),
                     **scatter_kwargs,

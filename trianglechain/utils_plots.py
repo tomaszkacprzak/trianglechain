@@ -664,8 +664,8 @@ def ensure_rec(data, column_prefix=""):
         return rec
 
 
-def find_alpha(column, empty_columns):
+def find_alpha(column, empty_columns, alpha=1):
     if column in empty_columns:
         return 0
     else:
-        return 1
+        return alpha
