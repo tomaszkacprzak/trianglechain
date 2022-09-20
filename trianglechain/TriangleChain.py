@@ -70,6 +70,8 @@ def plot_triangle_maringals(
     single_tri=True,
     color="b",
     cmap=plt.cm.plasma,
+    cmap_vmin=0,
+    cmap_vmax=None,
     ranges={},
     ticks={},
     n_bins=20,
@@ -107,6 +109,9 @@ def plot_triangle_maringals(
     label_fontsize=12,
     show_legend=False,
     orientation=None,
+    colorbar=False,
+    colorbar_label=None,
+    colorbar_ax=[0.735, 0.5, 0.03, 0.25]
 ):
     data = ensure_rec(data)
     empty_columns = []
@@ -192,7 +197,11 @@ def plot_triangle_maringals(
         for axc in ax.ravel():
             axc.axis("off")
     else:
-        ax = np.array(fig.get_axes()).reshape(n_box, n_box)
+        ax = np.array(fig.get_axes())
+        if colorbar:
+            ax = ax[:-1]
+        ax = ax.reshape(n_box, n_box)
+
 
     eps = 1e-6
     for c in columns:
@@ -398,6 +407,8 @@ def plot_triangle_maringals(
                     color=color,
                     cmap=cmap,
                     de_kwargs=de_kwargs,
+                    vmin=cmap_vmin,
+                    vmax=cmap_vmax,
                     prob=prob,
                     density_estimation_method=density_estimation_method,
                     label=label,
@@ -505,30 +516,34 @@ def plot_triangle_maringals(
                 if columns[i] != "EMPTY" and columns[j] != "EMPTY":
                     axc = get_current_ax(ax, tri, i, j)
                     axc.yaxis.tick_left()
+                    axc.yaxis.set_ticks_position('both')
                     axc.set_yticks(get_ticks(i))
-                    axc.tick_params(direction="in")
-        for i in range(1, n_dim):  # rows
+                    axc.tick_params(direction="in", length=10)
+        for i in range(0, n_dim):  # rows
             for j in range(0, i + 1):  # columns
                 if columns[i] != "EMPTY" and columns[j] != "EMPTY":
                     axc = get_current_ax(ax, tri, i, j)
-                    axc.xaxis.tick_bottom()
+                    if i != j:
+                        axc.xaxis.tick_bottom()
+                        axc.xaxis.set_ticks_position('both')
                     axc.set_xticks(get_ticks(j))
-                    axc.tick_params(direction="in")
+                    axc.tick_params(direction="in", length=10)
     elif tri[0] == "u":
         for i in range(0, n_dim - 1):  # rows
             for j in range(i + 1, n_dim):  # columns
                 if columns[i] != "EMPTY" and columns[j] != "EMPTY":
                     axc = get_current_ax(ax, tri, i, j)
                     axc.yaxis.tick_right()
+                    axc.yaxis.set_ticks_position('both')
                     axc.set_yticks(get_ticks(i))
-                    axc.tick_params(direction="in")
+                    axc.tick_params(direction="in", length=10)
         for i in range(0, n_dim - 1):  # rows
             for j in range(0, n_dim):  # columns
                 if columns[i] != "EMPTY" and columns[j] != "EMPTY":
                     axc = get_current_ax(ax, tri, i, j)
                     axc.xaxis.tick_top()
                     axc.set_xticks(get_ticks(j))
-                    axc.tick_params(direction="in")
+                    axc.tick_params(direction="in", length=10)
 
     def fmt_e(x):
         return (
@@ -664,6 +679,21 @@ def plot_triangle_maringals(
                 bbox_transform=ax[n_dim - 1, 0].transAxes,
                 fontsize=label_fontsize,
             )
+
+    if colorbar:
+        if cmap_vmax is None:
+            LOGGER.warning(
+                "colorbar is plotted without specifying cmap_max, "
+                "cmap_max=1 is assumed since the colors in the panels "
+                "correspond to realtive densities of each panel anyway")
+        norm = mpl.colors.Normalize(vmin=cmap_vmin, vmax=cmap_vmax)
+        sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+        #sm.set_array([])
+        #ticks = np.linspace(amin, amax, 3)
+        cbar = fig.colorbar(sm,
+                            cax=fig.add_axes(colorbar_ax))
+        cbar.ax.tick_params(labelsize=grid_kwargs["fontsize_ticklabels"])
+        cbar.set_label(colorbar_label, fontsize=label_fontsize)
 
     plt.subplots_adjust(hspace=0, wspace=0)
     fig.align_ylabels()

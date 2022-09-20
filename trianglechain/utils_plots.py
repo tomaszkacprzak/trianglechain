@@ -358,11 +358,14 @@ def density_image(
     color,
     cmap,
     de_kwargs,
+    vmin=0,
+    vmax=None,
     prob=None,
     density_estimation_method="smoothing",
     label=None,
     alpha_for_low_density=False,
     alpha_threshold=0,
+    color_bar=True
 ):
     """
     axc - axis of the plot
@@ -394,7 +397,7 @@ def density_image(
         my_cmap[:cmap_threshold, -1] = np.linspace(0, 1, cmap_threshold)
         cmap = ListedColormap(my_cmap)
     axc.pcolormesh(
-        x_grid, y_grid, kde, cmap=cmap, vmin=0, label=label, shading="auto"
+        x_grid, y_grid, kde, vmin=vmin, vmax=vmax, cmap=cmap, label=label, shading="auto"
     )
 
 
@@ -530,7 +533,6 @@ def scatter_density(
     lim2=None,
     norm_cols=False,
     n_points_scatter=-1,
-    colorbar=False,
     label=None,
     **kwargs,
 ):
@@ -620,9 +622,6 @@ def scatter_density(
             label=label,
             **kwargs,
         )
-
-    if colorbar:
-        plt.gcf().colorbar(sc, ax=axc)
 
 
 # def add_markers(fig, data_markers, tri="lower", scatter_kwargs={}):
