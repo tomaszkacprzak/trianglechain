@@ -78,6 +78,7 @@ class BaseChain:
         kwargs.setdefault("label_levels1D", 0.68)
         kwargs.setdefault("orientation", "horizontal")
         kwargs.setdefault("colorbar", False)
+        kwargs.setdefault("normalize_prob", True)
         kwargs["de_kwargs"].setdefault("n_points", kwargs["n_bins"])
         kwargs["de_kwargs"].setdefault("levels", [0.68, 0.95])
         kwargs["de_kwargs"].setdefault("n_levels_check", 2000)

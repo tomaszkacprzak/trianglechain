@@ -1,21 +1,28 @@
-import pylab as plt
+import matplotlib.pyplot as plt
 import numpy as np
-import math
 import matplotlib as mpl
-from matplotlib.ticker import FormatStrFormatter
 from trianglechain.utils_plots import (
+    prepare_columns,
+    setup_grouping,
+    get_labels,
+    get_hw_ratios,
+    setup_figure,
+    update_current_ranges,
+    update_current_ticks,
+    set_limits,
+    delete_all_ticks,
+    add_vline,
     ensure_rec,
-    get_density_grid_1D,
+    get_old_lims,
     find_alpha,
-    get_best_lims,
-    round_to_significant_digits,
+)
+from trianglechain.make_subplots import (
     contour_cl,
     density_image,
     scatter_density,
-    find_optimal_ticks
+    plot_1d,
 )
 from trianglechain.BaseChain import BaseChain
-from trianglechain import limits, bestfit
 from tqdm.auto import tqdm, trange
 
 from ekit import logger as logger_utils
@@ -47,7 +54,7 @@ class TriangleChain(BaseChain):
         kwargs_copy = deepcopy(self.kwargs)
         kwargs_copy.update(kwargs)
 
-        self.fig, self.ax = plot_triangle_maringals(
+        self.fig, self.ax = plot_triangle_marginals(
             fig=self.fig,
             size=self.size,
             func=plottype,
@@ -61,7 +68,7 @@ class TriangleChain(BaseChain):
         return self.fig, self.ax
 
 
-def plot_triangle_maringals(
+def plot_triangle_marginals(
     data,
     prob=None,
     params="all",
@@ -111,59 +118,26 @@ def plot_triangle_maringals(
     orientation=None,
     colorbar=False,
     colorbar_label=None,
-    colorbar_ax=[0.735, 0.5, 0.03, 0.25]
+    colorbar_ax=[0.735, 0.5, 0.03, 0.25],
+    normalize_prob=True,
 ):
+
+    ###############################
+    # prepare data and setup plot #
+    ###############################
     data = ensure_rec(data)
-    empty_columns = []
-    if add_empty_plots_like is not None:
-        columns = data.dtype.names
-        data2 = ensure_rec(add_empty_plots_like)
-        columns2 = data2.dtype.names
-        new_data = np.zeros(len(data), dtype=data2.dtype)
-        for c in columns2:
-            if c in columns:
-                new_data[c] = data[c]
-            else:
-                new_data[c] = data2[c][
-                    np.random.randint(0, len(data2), len(data))
-                ]
-                empty_columns.append(c)
-        data = new_data
-    if params != "all":
-        data = data[params]
-    columns = data.dtype.names
+    data, columns, empty_columns = prepare_columns(
+        data, params=params, add_empty_plots_like=add_empty_plots_like
+    )
 
     # needed for plotting chains with different automatic limits
     current_ranges = {}
     current_ticks = {}
 
-    try:
-        grouping_indices = np.asarray(grouping_kwargs["n_per_group"])[:-1]
-        ind = 0
-        for g in grouping_indices:
-            ind += g
-            columns = np.insert(np.array(columns, dtype="<U32"), ind, "EMPTY")
-            ind += 1
-    except Exception:
-        pass
-
-    # Axes labels
-    if labels is None:
-        labels = columns
-    else:
-        try:
-            ind = 0
-            for g in grouping_indices:
-                ind += g
-                labels = np.insert(labels, ind, "EMPTY")
-                ind += 1
-        except Exception:
-            pass
-
-    hw_ratios = np.ones_like(columns, dtype=float)
-    for i, lab in enumerate(columns):
-        if lab == "EMPTY":
-            hw_ratios[i] = grouping_kwargs["empty_ratio"]
+    # setup everything that grouping works properly
+    columns, grouping_indices = setup_grouping(columns, grouping_kwargs)
+    labels = get_labels(labels, columns, grouping_indices)
+    hw_ratios = get_hw_ratios(columns, grouping_kwargs)
 
     n_dim = len(columns)
     if single_tri:
@@ -171,7 +145,7 @@ def plot_triangle_maringals(
     else:
         n_box = n_dim + 1
 
-    if prob is not None:
+    if prob is not None and normalize_prob:
         prob = prob / np.sum(prob)
 
     if tri[0] == "l":
@@ -179,40 +153,15 @@ def plot_triangle_maringals(
     elif tri[0] == "u":
         tri_indices = np.triu_indices(n_dim, k=1)
     else:
-        raise Exception("tri={} should be either l or u".format(tri))
+        raise Exception("tri={} should be either lower or upper".format(tri))
 
     # Create figure if necessary and get axes
-    if fig is None:
-        fig, _ = plt.subplots(
-            nrows=n_box,
-            ncols=n_box,
-            figsize=(sum(hw_ratios) * size, sum(hw_ratios) * size),
-            gridspec_kw={
-                "height_ratios": hw_ratios,
-                "width_ratios": hw_ratios,
-            },
-            **subplots_kwargs,
-        )
-        ax = np.array(fig.get_axes()).reshape(n_box, n_box)
-        for axc in ax.ravel():
-            axc.axis("off")
-    else:
-        ax = np.array(fig.get_axes())
-        if colorbar:
-            ax = ax[:-1]
-        ax = ax.reshape(n_box, n_box)
+    fig, ax = setup_figure(
+        fig, n_box, hw_ratios, size, colorbar, subplots_kwargs
+    )
 
-
-    eps = 1e-6
-    for c in columns:
-        if c not in ranges:
-            current_ranges[c] = (
-                (np.nan, np.nan)
-                if c == "EMPTY"
-                else (np.amin(data[c]) - eps, np.amax(data[c]) + eps)
-            )
-        else:
-            current_ranges[c] = ranges[c]
+    # get ranges for each parameter (if not specified, max/min of data is used)
+    update_current_ranges(current_ranges, ranges, columns, data)
 
     # Bins for histograms
     hist_binedges = {
@@ -239,10 +188,13 @@ def plot_triangle_maringals(
                 axc = ax[i, j]
             else:
                 axc = ax[i + 1, j]
+        # turn on axs sind they are used
         axc.axis("on")
         return axc
 
-    # Plot histograms
+    #################
+    # 1D histograms #
+    #################
     if not plot_histograms_1D:
         for i in range(n_dim):
             axc = get_current_ax(ax, tri, i, i)
@@ -255,124 +207,46 @@ def plot_triangle_maringals(
             disable_progress_bar = False
         for i in trange(n_dim, disable=disable_progress_bar):
             if columns[i] != "EMPTY":
-                prob1D = get_density_grid_1D(
-                    data=data[columns[i]],
-                    prob=prob,
-                    lims=current_ranges[columns[i]],
-                    binedges=hist_binedges[columns[i]],
-                    bincenters=hist_bincenters[columns[i]],
-                    method=density_estimation_method,
-                    de_kwargs=de_kwargs,
-                )
-                # prob1D = histogram_1D(data=data[columns[i]],
-                #                       prob=prob,
-                #                       binedges=hist_binedges[columns[i]],
-                #                       bincenters=hist_bincenters[columns[i]])
-
                 axc = get_current_ax(ax, tri, i, i)
-                if axc.lines or axc.collections:
-                    old_ylims = axc.get_ylim()
-                    old_xlims = axc.get_xlim()
-                else:
-                    old_ylims = (np.inf, 0)
-                    old_xlims = (np.inf, -np.inf)
-                axc.autoscale()
-                axc.plot(
-                    hist_bincenters[columns[i]],
-                    prob1D,
-                    "-",
-                    color=color_hist,
-                    alpha=find_alpha(columns[i], empty_columns, alpha1D),
-                    label=label,
-                    **hist_kwargs,
+                plot_1d(
+                    axc,
+                    column=columns[i],
+                    data=data,
+                    prob=prob,
+                    ranges=ranges,
+                    current_ranges=current_ranges,
+                    hist_binedges=hist_binedges,
+                    hist_bincenters=hist_bincenters,
+                    density_estimation_method=density_estimation_method,
+                    de_kwargs=de_kwargs,
+                    show_values=show_values,
+                    color_hist=color_hist,
+                    empty_columns=empty_columns,
+                    alpha1D=alpha1D,
+                    label=labels[i],
+                    hist_kwargs=hist_kwargs,
+                    fill=fill,
+                    lnprobs=lnprobs,
+                    levels_method=levels_method,
+                    bestfit_method=bestfit_method,
+                    credible_interval=credible_interval,
+                    label_fontsize=label_fontsize,
                 )
-                if fill:
-                    axc.fill_between(
-                        hist_bincenters[columns[i]],
-                        np.zeros_like(prob1D),
-                        prob1D,
-                        alpha=0.1 * find_alpha(columns[i], empty_columns, alpha1D),
-                        color=color_hist,
-                    )
-                try:
-                    xlims = ranges[columns[i]]
-                except Exception:
-                    xlims = get_best_lims(
-                        current_ranges[columns[i]],
-                        current_ranges[columns[i]],
-                        old_xlims,
-                        old_ylims,
-                    )[0]
-                axc.set_xlim(xlims)
-                axc.set_ylim(0, max(old_ylims[1], axc.get_ylim()[1]))
-                if show_values:
-                    lower, upper = limits.get_levels(
-                        data[columns[i]],
-                        lnprobs,
-                        levels_method,
-                        credible_interval,
-                    )
-                    bf = bestfit.get_bestfit(
-                        data[columns[i]], lnprobs, bestfit_method
-                    )
-                    uncertainty = (upper - lower) / 2
-                    first_significant_digit = math.floor(np.log10(uncertainty))
-                    u = round_to_significant_digits(uncertainty, 3) * 10 ** (
-                        -first_significant_digit + 2
-                    )
-                    if u > 100 and u < 354:
-                        significant_digits_to_round = 2
-                    elif u < 949:
-                        significant_digits_to_round = 1
-                    else:
-                        significant_digits_to_round = 2
-                        uncertainty = 1000 / 10 ** (
-                            -first_significant_digit + 2
-                        )
-                    rounding_digit = -(
-                        math.floor(np.log10(uncertainty))
-                        - significant_digits_to_round
-                        + 1
-                    )
-                    if rounding_digit > 0:
-                        frmt = "{{:.{}f}}".format(rounding_digit)
-                    else:
-                        frmt = "{:.0f}"
-                    str_bf = f"{frmt}".format(np.around(bf, rounding_digit))
-                    low = f"{frmt}".format(
-                        np.around(bf - lower, rounding_digit)
-                    )
-                    up = f"{frmt}".format(
-                        np.around(upper - bf, rounding_digit)
-                    )
-                    axc.set_title(
-                        r"{} $= {}^{{+{} }}_{{-{} }}$".format(
-                            labels[i], str_bf, up, low
-                        ),
-                        fontsize=label_fontsize,
-                    )
 
     if scatter_vline_1D:
         for i in range(n_dim):
             if columns[i] != "EMPTY":
                 axc = get_current_ax(ax, tri, i, i)
-                if np.size(data[columns[i]]) > 1:
-                    for d in data[columns[i]]:
-                        axc.axvline(d, color=color, **axvline_kwargs)
-                else:
-                    axc.axvline(
-                        data[columns[i]], color=color, **axvline_kwargs
-                    )
-    # data
+                add_vline(axc, columns[i], data, color, axvline_kwargs)
+
+    #################
+    # 2D histograms #
+    #################
     for i, j in tqdm(zip(*tri_indices), total=len(tri_indices[0])):
         if columns[i] != "EMPTY" and columns[j] != "EMPTY":
             axc = get_current_ax(ax, tri, i, j)
-            if axc.lines or axc.collections:
-                old_ylims = axc.get_ylim()
-                old_xlims = axc.get_xlim()
-            else:
-                old_ylims = (np.inf, -np.inf)
-                old_xlims = (np.inf, -np.inf)
+            old_xlims, old_ylims = get_old_lims(axc)
+
             if func == "contour_cl":
                 contour_cl(
                     axc,
@@ -452,98 +326,67 @@ def plot_triangle_maringals(
                     cmap=cmap,
                     label=label,
                 )
-            (
-                current_ranges[columns[j]],
-                current_ranges[columns[i]],
-            ) = get_best_lims(
-                current_ranges[columns[j]],
-                current_ranges[columns[i]],
+            set_limits(
+                axc,
+                ranges,
+                current_ranges,
+                columns[i],
+                columns[j],
                 old_xlims,
                 old_ylims,
             )
-            try:
-                xlims = ranges[columns[j]]
-            except Exception:
-                xlims = current_ranges[columns[j]]
-            try:
-                ylims = ranges[columns[i]]
-            except Exception:
-                ylims = current_ranges[columns[i]]
-            axc.set_xlim(xlims)
-            axc.set_ylim(ylims)
-            axc.get_yaxis().set_major_formatter(FormatStrFormatter("%.3e"))
-            axc.get_xaxis().set_major_formatter(FormatStrFormatter("%.3e"))
 
-    # ticks
-    n = n_dim - 1
-    # ticks = lambda i: np.linspace(
-    #     ranges[columns[i]][0],
-    #     ranges[columns[i]][1],
-    #     5
-    # )[1:-1]
-
+    #########
+    # ticks #
+    #########
     def get_ticks(i):
         try:
             return ticks[columns[i]]
         except Exception:
             return current_ticks[columns[i]]
 
-    # delete all ticks
-    for axc in ax.ravel():
-        axc.set_xticks([])
-        axc.set_yticks([])
-        axc.set_xticklabels([])
-        axc.set_yticklabels([])
-        axc.set_axisbelow(True)
+    def plot_yticks(axc, i, length=10, direction="in"):
+        axc.yaxis.tick_left()
+        axc.yaxis.set_ticks_position("both")
+        axc.set_yticks(get_ticks(i))
+        axc.tick_params(direction=direction, length=length)
 
-    for c in columns:
-        if c not in current_ticks:
-            if c == "EMPTY":
-                current_ticks[c] = np.zeros(n_ticks)
-            else:
-                try:
-                    current_ticks[c] = find_optimal_ticks(
-                        (ranges[c][0], ranges[c][1]), n_ticks
-                    )
-                except Exception:
-                    current_ticks[c] = find_optimal_ticks(
-                        (current_ranges[c][0], current_ranges[c][1]), n_ticks
-                    )
-    # ticks
+    def plot_xticks(axc, i, j, length=10, direction="in"):
+        if i != j:
+            axc.xaxis.tick_bottom()
+            axc.xaxis.set_ticks_position("both")
+        axc.set_xticks(get_ticks(j))
+        axc.tick_params(direction=direction, length=length)
+
+    delete_all_ticks(ax)
+    update_current_ticks(
+        current_ticks, columns, ranges, current_ranges, n_ticks
+    )
+
     if tri[0] == "l":
         for i in range(1, n_dim):  # rows
             for j in range(0, i):  # columns
                 if columns[i] != "EMPTY" and columns[j] != "EMPTY":
                     axc = get_current_ax(ax, tri, i, j)
-                    axc.yaxis.tick_left()
-                    axc.yaxis.set_ticks_position('both')
-                    axc.set_yticks(get_ticks(i))
-                    axc.tick_params(direction="in", length=10)
+                    plot_yticks(axc, i)
+
         for i in range(0, n_dim):  # rows
             for j in range(0, i + 1):  # columns
                 if columns[i] != "EMPTY" and columns[j] != "EMPTY":
                     axc = get_current_ax(ax, tri, i, j)
-                    if i != j:
-                        axc.xaxis.tick_bottom()
-                        axc.xaxis.set_ticks_position('both')
-                    axc.set_xticks(get_ticks(j))
-                    axc.tick_params(direction="in", length=10)
+                    plot_xticks(axc, i, j)
+
     elif tri[0] == "u":
         for i in range(0, n_dim - 1):  # rows
             for j in range(i + 1, n_dim):  # columns
                 if columns[i] != "EMPTY" and columns[j] != "EMPTY":
                     axc = get_current_ax(ax, tri, i, j)
-                    axc.yaxis.tick_right()
-                    axc.yaxis.set_ticks_position('both')
-                    axc.set_yticks(get_ticks(i))
-                    axc.tick_params(direction="in", length=10)
+                    plot_yticks(axc, i)
         for i in range(0, n_dim - 1):  # rows
             for j in range(0, n_dim):  # columns
                 if columns[i] != "EMPTY" and columns[j] != "EMPTY":
                     axc = get_current_ax(ax, tri, i, j)
-                    axc.xaxis.tick_top()
-                    axc.set_xticks(get_ticks(j))
-                    axc.tick_params(direction="in", length=10)
+                    plot_xticks(axc, i, j)
 
     def fmt_e(x):
         return (
@@ -554,56 +397,50 @@ def plot_triangle_maringals(
         )
 
     # ticklabels
+    def plot_tick_labels(axc, xy, i, grid_kwargs):
+        ticklabels = [fmt_e(t) for t in get_ticks(i)]
+        ticklabels = [t for t in get_ticks(i)]
+        if xy == "y":
+            axc.set_yticklabels(
+                ticklabels,
+                rotation=0,
+                fontsize=grid_kwargs["fontsize_ticklabels"],
+                family=grid_kwargs["font_family"],
+            )
+        elif xy == "x":
+            axc.set_xticklabels(
+                ticklabels,
+                rotation=90,
+                fontsize=grid_kwargs["fontsize_ticklabels"],
+                family=grid_kwargs["font_family"],
+            )
+
     if tri[0] == "l":
         # y tick labels
         for i in range(1, n_dim):
             if columns[i] != "EMPTY":
                 axc = get_current_ax(ax, tri, i, 0)
-                ticklabels = [fmt_e(t) for t in get_ticks(i)]
-                ticklabels = [t for t in get_ticks(i)]
-                axc.set_yticklabels(
-                    ticklabels,
-                    rotation=0,
-                    fontsize=grid_kwargs["fontsize_ticklabels"],
-                    family=grid_kwargs["font_family"],
-                )
+                plot_tick_labels(axc, "y", i, grid_kwargs)
         # x tick labels
         for i in range(0, n_dim):
             if columns[i] != "EMPTY":
-                axc = get_current_ax(ax, tri, n, i)
-                ticklabels = [fmt_e(t) for t in get_ticks(i)]
-                ticklabels = [t for t in get_ticks(i)]
-                axc.set_xticklabels(
-                    ticklabels,
-                    rotation=90,
-                    fontsize=grid_kwargs["fontsize_ticklabels"],
-                    family=grid_kwargs["font_family"],
-                )
+                axc = get_current_ax(ax, tri, n_dim - 1, i)
+                plot_tick_labels(axc, "x", i, grid_kwargs)
     elif tri[0] == "u":
         # y tick labels
         for i in range(0, n_dim - 1):
             if columns[i] != "EMPTY":
-                axc = get_current_ax(ax, tri, i, n)
-                ticklabels = [fmt_e(t) for t in get_ticks(i)]
-                axc.set_yticklabels(
-                    ticklabels,
-                    rotation=0,
-                    fontsize=grid_kwargs["fontsize_ticklabels"],
-                    family=grid_kwargs["font_family"],
-                )
+                axc = get_current_ax(ax, tri, i, n_dim - 1)
+                plot_tick_labels(axc, "y", i, grid_kwargs)
         # x tick labels
         for i in range(0, n_dim):
             if columns[i] != "EMPTY":
                 axc = get_current_ax(ax, tri, 0, i)
-                ticklabels = [fmt_e(t) for t in get_ticks(i)]
-                axc.set_xticklabels(
-                    ticklabels,
-                    rotation=90,
-                    fontsize=grid_kwargs["fontsize_ticklabels"],
-                    family=grid_kwargs["font_family"],
-                )
+                plot_tick_labels(axc, "x", i, grid_kwargs)
 
-    # grid
+    ########
+    # grid #
+    ########
     if tri[0] == "l":
         for i in range(1, n_dim):
             for j in range(i):
@@ -621,6 +458,9 @@ def plot_triangle_maringals(
                         axc.grid(zorder=0, linestyle="--")
                     axc.set_axisbelow(True)
 
+    ###########
+    # legends #
+    ###########
     legend_lines, legend_labels = ax[0, 0].get_legend_handles_labels()
     if tri[0] == "l":
         labelpad = 10
@@ -628,25 +468,20 @@ def plot_triangle_maringals(
             if columns[i] != "EMPTY":
                 axc = get_current_ax(ax, tri, i, 0)
 
-                try:
-                    axc.set_ylabel(
-                        labels[i],
-                        **labels_kwargs,
-                        rotation=90,
-                        labelpad=labelpad,
-                    )
-                except Exception:
-                    import ipdb
-                    ipdb.set_trace()
+                axc.set_ylabel(
+                    labels[i],
+                    **labels_kwargs,
+                    rotation=90,
+                    labelpad=labelpad,
+                )
                 axc.yaxis.set_label_position("left")
-                axc = get_current_ax(ax, tri, n, i)
+                axc = get_current_ax(ax, tri, n_dim - 1, i)
                 axc.set_xlabel(
                     labels[i], **labels_kwargs, rotation=0, labelpad=labelpad
                 )
                 axc.xaxis.set_label_position("bottom")
-        if (
-            legend_lines and show_legend
-        ):  # only print legend when there are labels for it
+        if legend_lines and show_legend:
+            # only print legend when there are labels for it
             fig.legend(
                 legend_lines,
                 legend_labels,
@@ -658,7 +493,7 @@ def plot_triangle_maringals(
         labelpad = 20
         for i in range(n_dim):
             if columns[i] != "EMPTY":
-                axc = get_current_ax(ax, tri, i, n)
+                axc = get_current_ax(ax, tri, i, n_dim - 1)
                 axc.set_ylabel(
                     labels[i], **labels_kwargs, rotation=90, labelpad=labelpad
                 )
@@ -668,10 +503,8 @@ def plot_triangle_maringals(
                     labels[i], **labels_kwargs, rotation=0, labelpad=labelpad
                 )
                 axc.xaxis.set_label_position("top")
-        if (
-            legend_lines and show_legend
-        ):  # only print legend when there are labels for it
-            fig.get_legend().remove()
+        if legend_lines and show_legend:
+            # only print legend when there are labels for it
             fig.legend(
                 legend_lines,
                 legend_labels,
@@ -685,13 +518,13 @@ def plot_triangle_maringals(
             LOGGER.warning(
                 "colorbar is plotted without specifying cmap_max, "
                 "cmap_max=1 is assumed since the colors in the panels "
-                "correspond to realtive densities of each panel anyway")
+                "correspond to realtive densities of each panel anyway"
+            )
         norm = mpl.colors.Normalize(vmin=cmap_vmin, vmax=cmap_vmax)
         sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
-        #sm.set_array([])
-        #ticks = np.linspace(amin, amax, 3)
-        cbar = fig.colorbar(sm,
-                            cax=fig.add_axes(colorbar_ax))
+        # sm.set_array([])
+        # ticks = np.linspace(amin, amax, 3)
+        cbar = fig.colorbar(sm, cax=fig.add_axes(colorbar_ax))
         cbar.ax.tick_params(labelsize=grid_kwargs["fontsize_ticklabels"])
         cbar.set_label(colorbar_label, fontsize=label_fontsize)
 

@@ -5,7 +5,7 @@ from trianglechain.utils_plots import (
     find_optimal_ticks,
     contour_cl,
     density_image,
-    scatter_density
+    scatter_density,
 )
 from trianglechain.BaseChain import BaseChain
 
