@@ -14,6 +14,7 @@ from trianglechain.utils_plots import (
     add_vline,
     ensure_rec,
     get_old_lims,
+    get_best_old_lims,
     find_alpha,
 )
 from trianglechain.make_subplots import (
@@ -63,6 +64,7 @@ class TriangleChain(BaseChain):
             prob=prob,
             tri=tri,
             color=color,
+            plot_histograms_1D=plot_histograms_1D,
             **kwargs_copy,
         )
         return self.fig, self.ax
@@ -145,8 +147,13 @@ def plot_triangle_marginals(
     else:
         n_box = n_dim + 1
 
-    if prob is not None and normalize_prob:
-        prob = prob / np.sum(prob)
+    if prob is not None:
+        if normalize_prob:
+            prob = prob / np.sum(prob)
+        else:
+            # for example to plot an additional parameter in parameter space
+            prob_label = prob
+            prob = None
 
     if tri[0] == "l":
         tri_indices = np.tril_indices(n_dim, k=-1)
@@ -156,9 +163,13 @@ def plot_triangle_marginals(
         raise Exception("tri={} should be either lower or upper".format(tri))
 
     # Create figure if necessary and get axes
-    fig, ax = setup_figure(
+    fig, ax, old_tri = setup_figure(
         fig, n_box, hw_ratios, size, colorbar, subplots_kwargs
     )
+    if old_tri is not None and old_tri != tri:
+        double_tri = True
+    else:
+        double_tri = False
 
     # get ranges for each parameter (if not specified, max/min of data is used)
     update_current_ranges(current_ranges, ranges, columns, data)
@@ -188,19 +199,19 @@ def plot_triangle_marginals(
                 axc = ax[i, j]
             else:
                 axc = ax[i + 1, j]
-        # turn on axs sind they are used
-        axc.axis("on")
+
+        if i==j and not plot_histograms_1D and not scatter_vline_1D:
+            # in this case axis should not be turned on in this call
+            pass
+        else:
+            # turn on ax sinces it is used
+            axc.axis("on")
         return axc
 
     #################
     # 1D histograms #
     #################
-    if not plot_histograms_1D:
-        for i in range(n_dim):
-            axc = get_current_ax(ax, tri, i, i)
-            if not axc.lines or not axc.collections:
-                axc.set_visible(False)
-    else:
+    if plot_histograms_1D:
         disable_progress_bar = True
         if show_values:
             LOGGER.info("Computing bestfits and levels")
@@ -211,6 +222,7 @@ def plot_triangle_marginals(
                 plot_1d(
                     axc,
                     column=columns[i],
+                    param_label=labels[i],
                     data=data,
                     prob=prob,
                     ranges=ranges,
@@ -223,7 +235,7 @@ def plot_triangle_marginals(
                     color_hist=color_hist,
                     empty_columns=empty_columns,
                     alpha1D=alpha1D,
-                    label=labels[i],
+                    label=label,
                     hist_kwargs=hist_kwargs,
                     fill=fill,
                     lnprobs=lnprobs,
@@ -246,6 +258,17 @@ def plot_triangle_marginals(
         if columns[i] != "EMPTY" and columns[j] != "EMPTY":
             axc = get_current_ax(ax, tri, i, j)
             old_xlims, old_ylims = get_old_lims(axc)
+
+            if double_tri:
+                if tri=="lower":
+                    other_tri = "upper"
+                else:
+                    other_tri = "lower"
+                axc_mirror = get_current_ax(ax, other_tri, j, i)
+                old_xlims_mirror, old_ylims_mirror = get_old_lims(axc_mirror)
+                old_xlims, old_ylims = get_best_old_lims(
+                    old_xlims, old_ylims_mirror, old_ylims, old_xlims_mirror
+                )
 
             if func == "contour_cl":
                 contour_cl(
@@ -305,12 +328,17 @@ def plot_triangle_marginals(
                     **scatter_kwargs,
                 )
             elif func == "scatter_prob":
-                sorting = np.argsort(prob)
+                if normalize_prob:
+                    _prob = prob
+                else:
+                    _prob = prob_label
+                sorting = np.argsort(_prob)
                 axc.scatter(
                     data[columns[j]][sorting],
                     data[columns[i]][sorting],
-                    c=prob[sorting],
+                    c=_prob[sorting],
                     label=label,
+                    cmap=cmap,
                     **scatter_kwargs,
                 )
             elif func == "scatter_density":
@@ -335,6 +363,16 @@ def plot_triangle_marginals(
                 old_xlims,
                 old_ylims,
             )
+            if double_tri:
+                set_limits(
+                    axc_mirror,
+                    ranges,
+                    current_ranges,
+                    columns[j],
+                    columns[i],
+                    old_ylims,
+                    old_xlims,
+                )
 
     #########
     # ticks #
@@ -346,14 +384,12 @@ def plot_triangle_marginals(
             return current_ticks[columns[i]]
 
     def plot_yticks(axc, i, length=10, direction="in"):
-        axc.yaxis.tick_left()
         axc.yaxis.set_ticks_position("both")
         axc.set_yticks(get_ticks(i))
         axc.tick_params(direction=direction, length=length)
 
     def plot_xticks(axc, i, j, length=10, direction="in"):
         if i != j:
-            axc.xaxis.tick_bottom()
             axc.xaxis.set_ticks_position("both")
         axc.set_xticks(get_ticks(j))
         axc.tick_params(direction=direction, length=length)
@@ -363,29 +399,30 @@ def plot_triangle_marginals(
         current_ticks, columns, ranges, current_ranges, n_ticks
     )
 
-    if tri[0] == "l":
+    if tri[0] == "l" or double_tri:
+        local_tri = "lower"
         for i in range(1, n_dim):  # rows
             for j in range(0, i):  # columns
                 if columns[i] != "EMPTY" and columns[j] != "EMPTY":
-                    axc = get_current_ax(ax, tri, i, j)
+                    axc = get_current_ax(ax, local_tri, i, j)
                     plot_yticks(axc, i)
 
         for i in range(0, n_dim):  # rows
             for j in range(0, i + 1):  # columns
                 if columns[i] != "EMPTY" and columns[j] != "EMPTY":
-                    axc = get_current_ax(ax, tri, i, j)
+                    axc = get_current_ax(ax, local_tri, i, j)
                     plot_xticks(axc, i, j)
-
-    elif tri[0] == "u":
-        for i in range(0, n_dim - 1):  # rows
+    if tri[0] == "u" or double_tri:
+        local_tri="upper"
+        for i in range(0, n_dim):  # rows
             for j in range(i + 1, n_dim):  # columns
                 if columns[i] != "EMPTY" and columns[j] != "EMPTY":
-                    axc = get_current_ax(ax, tri, i, j)
+                    axc = get_current_ax(ax, local_tri, i, j)
                     plot_yticks(axc, i)
-        for i in range(0, n_dim - 1):  # rows
-            for j in range(0, n_dim):  # columns
+        for i in range(0, n_dim):  # rows
+            for j in range(i, n_dim):  # columns
                 if columns[i] != "EMPTY" and columns[j] != "EMPTY":
-                    axc = get_current_ax(ax, tri, i, j)
+                    axc = get_current_ax(ax, local_tri, i, j)
                     plot_xticks(axc, i, j)
 
     def fmt_e(x):
@@ -397,8 +434,8 @@ def plot_triangle_marginals(
         )
 
     # ticklabels
-    def plot_tick_labels(axc, xy, i, grid_kwargs):
-        ticklabels = [fmt_e(t) for t in get_ticks(i)]
+    def plot_tick_labels(axc, xy, i, tri, grid_kwargs):
+        # ticklabels = [fmt_e(t) for t in get_ticks(i)]
         ticklabels = [t for t in get_ticks(i)]
         if xy == "y":
             axc.set_yticklabels(
@@ -407,6 +444,10 @@ def plot_triangle_marginals(
                 fontsize=grid_kwargs["fontsize_ticklabels"],
                 family=grid_kwargs["font_family"],
             )
+            if tri[0] == "u":
+                axc.yaxis.tick_right()
+                axc.yaxis.set_ticks_position("both")
+                axc.yaxis.set_label_position("right")
         elif xy == "x":
             axc.set_xticklabels(
                 ticklabels,
@@ -414,29 +455,35 @@ def plot_triangle_marginals(
                 fontsize=grid_kwargs["fontsize_ticklabels"],
                 family=grid_kwargs["font_family"],
             )
+            if tri[0] == "u":
+                axc.xaxis.tick_top()
+                axc.xaxis.set_ticks_position("both")
+                axc.xaxis.set_label_position("top")
 
-    if tri[0] == "l":
+    if tri[0] == "l" or double_tri:
+        local_tri="lower"
         # y tick labels
         for i in range(1, n_dim):
             if columns[i] != "EMPTY":
-                axc = get_current_ax(ax, tri, i, 0)
-                plot_tick_labels(axc, "y", i, grid_kwargs)
+                axc = get_current_ax(ax, local_tri, i, 0)
+                plot_tick_labels(axc, "y", i, local_tri, grid_kwargs)
         # x tick labels
         for i in range(0, n_dim):
             if columns[i] != "EMPTY":
-                axc = get_current_ax(ax, tri, n_dim - 1, i)
-                plot_tick_labels(axc, "x", i, grid_kwargs)
-    elif tri[0] == "u":
+                axc = get_current_ax(ax, local_tri, n_dim - 1, i)
+                plot_tick_labels(axc, "x", i, local_tri, grid_kwargs)
+    if tri[0] == "u" or double_tri:
+        local_tri="upper"
         # y tick labels
         for i in range(0, n_dim - 1):
             if columns[i] != "EMPTY":
-                axc = get_current_ax(ax, tri, i, n_dim - 1)
-                plot_tick_labels(axc, "y", i, grid_kwargs)
+                axc = get_current_ax(ax, local_tri, i, n_dim - 1)
+                plot_tick_labels(axc, "y", i, tri, grid_kwargs)
         # x tick labels
-        for i in range(0, n_dim):
+        for i in range(1, n_dim):
             if columns[i] != "EMPTY":
-                axc = get_current_ax(ax, tri, 0, i)
-                plot_tick_labels(axc, "x", i, grid_kwargs)
+                axc = get_current_ax(ax, local_tri, 0, i)
+                plot_tick_labels(axc, "x", i, tri, grid_kwargs)
 
     ########
     # grid #
@@ -514,12 +561,11 @@ def plot_triangle_marginals(
             )
 
     if colorbar:
-        if cmap_vmax is None:
-            LOGGER.warning(
-                "colorbar is plotted without specifying cmap_max, "
-                "cmap_max=1 is assumed since the colors in the panels "
-                "correspond to realtive densities of each panel anyway"
-            )
+        try:
+            cmap_vmin = min(prob_label)
+            cmap_vmax = max(prob_label)
+        except Exception:
+            pass
         norm = mpl.colors.Normalize(vmin=cmap_vmin, vmax=cmap_vmax)
         sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
         # sm.set_array([])

@@ -19,6 +19,7 @@ import warnings
 def plot_1d(
     axc,
     column,
+    param_label,
     data,
     prob,
     ranges,
@@ -86,7 +87,7 @@ def plot_1d(
             column,
             data,
             lnprobs,
-            label=label,
+            label=param_label,
             levels_method=levels_method,
             bestfit_method=bestfit_method,
             credible_interval=credible_interval,

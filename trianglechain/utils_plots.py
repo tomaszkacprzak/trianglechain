@@ -81,12 +81,21 @@ def setup_figure(fig, n_box, hw_ratios, size, colorbar, subplots_kwargs):
         for axc in ax.ravel():
             # remove all unused axs
             axc.axis("off")
+        old_tri = None
     else:
         ax = np.array(fig.get_axes())
         if colorbar:
             ax = ax[:-1]
         ax = ax.reshape(n_box, n_box)
-    return fig, ax
+        old_tri = check_orientation(ax)
+    return fig, ax, old_tri
+
+
+def check_orientation(ax):
+    if ax[1, 0].has_data():
+        return "lower"
+    else:
+        return "upper"
 
 
 def update_current_ranges(current_ranges, ranges, columns, data):
@@ -128,6 +137,14 @@ def get_old_lims(axc):
         old_ylims = (np.inf, 0)
         old_xlims = (np.inf, -np.inf)
     return old_xlims, old_ylims
+
+
+def get_best_old_lims(xlim1, xlim2, ylim1, ylim2):
+    xlow = min(xlim1[0], xlim2[0])
+    xhigh = max(xlim1[1], xlim2[1])
+    ylow = min(ylim1[0], ylim2[0])
+    yhigh = max(ylim1[1], ylim2[1])
+    return (xlow, xhigh), (ylow, yhigh)
 
 
 def get_values(
