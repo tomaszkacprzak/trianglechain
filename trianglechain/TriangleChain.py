@@ -121,7 +121,8 @@ def plot_triangle_marginals(
     colorbar=False,
     colorbar_label=None,
     colorbar_ax=[0.735, 0.5, 0.03, 0.25],
-    normalize_prob=True,
+    normalize_prob1D=True,
+    normalize_prob2D=True,
 ):
 
     ###############################
@@ -148,12 +149,25 @@ def plot_triangle_marginals(
         n_box = n_dim + 1
 
     if prob is not None:
-        if normalize_prob:
-            prob = prob / np.sum(prob)
+        if np.min(prob) < 0:
+            prob_offset = -np.min(prob)
+        else:
+            prob_offset = 0
+        if normalize_prob1D:
+            prob1D = (prob+prob_offset) / np.sum(prob+prob_offset)
+        else:
+            prob1D = None
+
+        if normalize_prob2D:
+            prob2D = (prob+prob_offset) / np.sum(prob+prob_offset)
         else:
             # for example to plot an additional parameter in parameter space
             prob_label = prob
-            prob = None
+            prob2D = None
+
+    else:
+        prob1D = None
+        prob2D = None 
 
     if tri[0] == "l":
         tri_indices = np.tril_indices(n_dim, k=-1)
@@ -224,7 +238,7 @@ def plot_triangle_marginals(
                     column=columns[i],
                     param_label=labels[i],
                     data=data,
-                    prob=prob,
+                    prob=prob1D,
                     ranges=ranges,
                     current_ranges=current_ranges,
                     hist_binedges=hist_binedges,
@@ -328,8 +342,8 @@ def plot_triangle_marginals(
                     **scatter_kwargs,
                 )
             elif func == "scatter_prob":
-                if normalize_prob:
-                    _prob = prob
+                if normalize_prob2D:
+                    _prob = prob2D
                 else:
                     _prob = prob_label
                 sorting = np.argsort(_prob)
