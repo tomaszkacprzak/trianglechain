@@ -1,157 +1,303 @@
-import pylab as plt, numpy as np, scipy, warnings, math
-from matplotlib.ticker import FormatStrFormatter
-from matplotlib.colors import ListedColormap
-from functools import partial
+import numpy as np
+import math
 from scipy.stats import median_absolute_deviation
-from sklearn.preprocessing import MinMaxScaler
-import matplotlib
+import matplotlib.pyplot as plt
+from matplotlib.ticker import FormatStrFormatter
+from trianglechain import limits, bestfit
+
+
+def prepare_columns(data, params="all", add_empty_plots_like=None):
+    empty_columns = []
+    if add_empty_plots_like is not None:
+        columns = data.dtype.names
+        data2 = ensure_rec(add_empty_plots_like)
+        columns2 = data2.dtype.names
+        new_data = np.zeros(len(data), dtype=data2.dtype)
+        for c in columns2:
+            if c in columns:
+                new_data[c] = data[c]
+            else:
+                new_data[c] = data2[c][
+                    np.random.randint(0, len(data2), len(data))
+                ]
+                empty_columns.append(c)
+        data = new_data
+    if params != "all":
+        data = data[params]
+    columns = data.dtype.names
+    return data, columns, empty_columns
+
+
+def setup_grouping(columns, grouping_kwargs):
+    try:
+        grouping_indices = np.asarray(grouping_kwargs["n_per_group"])[:-1]
+        ind = 0
+        for g in grouping_indices:
+            ind += g
+            columns = np.insert(np.array(columns, dtype="<U32"), ind, "EMPTY")
+            ind += 1
+        return columns, grouping_indices
+    except Exception:
+        return columns, None
+
+
+def get_labels(labels, columns, grouping_indices):
+    # Axes labels
+    if labels is None:
+        labels = columns
+    else:
+        try:
+            ind = 0
+            for g in grouping_indices:
+                ind += g
+                labels = np.insert(labels, ind, "EMPTY")
+                ind += 1
+        except Exception:
+            pass
+    return labels
+
+
+def get_hw_ratios(columns, grouping_kwargs):
+    hw_ratios = np.ones_like(columns, dtype=float)
+    for i, lab in enumerate(columns):
+        if lab == "EMPTY":
+            hw_ratios[i] = grouping_kwargs["empty_ratio"]
+    return hw_ratios
+
+
+def setup_figure(fig, n_box, hw_ratios, size, colorbar, subplots_kwargs):
+    if fig is None:
+        fig, _ = plt.subplots(
+            nrows=n_box,
+            ncols=n_box,
+            figsize=(sum(hw_ratios) * size, sum(hw_ratios) * size),
+            gridspec_kw={
+                "height_ratios": hw_ratios,
+                "width_ratios": hw_ratios,
+            },
+            **subplots_kwargs,
+        )
+        ax = np.array(fig.get_axes()).reshape(n_box, n_box)
+        for axc in ax.ravel():
+            # remove all unused axs
+            axc.axis("off")
+        old_tri = None
+    else:
+        ax = np.array(fig.get_axes())
+        if colorbar:
+            ax = ax[:-1]
+        ax = ax.reshape(n_box, n_box)
+        old_tri = check_orientation(ax)
+    return fig, ax, old_tri
+
+
+def check_orientation(ax):
+    if ax[1, 0].has_data():
+        return "lower"
+    else:
+        return "upper"
+
+
+def update_current_ranges(current_ranges, ranges, columns, data):
+    eps = 1e-6
+    for c in columns:
+        if c not in ranges:
+            current_ranges[c] = (
+                (np.nan, np.nan)
+                if c == "EMPTY"
+                else (np.amin(data[c]) - eps, np.amax(data[c]) + eps)
+            )
+        else:
+            current_ranges[c] = ranges[c]
+
+
+def update_current_ticks(
+    current_ticks, columns, ranges, current_ranges, n_ticks
+):
+    for c in columns:
+        if c not in current_ticks:
+            if c == "EMPTY":
+                current_ticks[c] = np.zeros(n_ticks)
+            else:
+                try:
+                    current_ticks[c] = find_optimal_ticks(
+                        (ranges[c][0], ranges[c][1]), n_ticks
+                    )
+                except Exception:
+                    current_ticks[c] = find_optimal_ticks(
+                        (current_ranges[c][0], current_ranges[c][1]), n_ticks
+                    )
+
+
+def get_old_lims(axc):
+    if axc.lines or axc.collections:
+        old_ylims = axc.get_ylim()
+        old_xlims = axc.get_xlim()
+    else:
+        old_ylims = (np.inf, 0)
+        old_xlims = (np.inf, -np.inf)
+    return old_xlims, old_ylims
+
+
+def get_best_old_lims(xlim1, xlim2, ylim1, ylim2):
+    xlow = min(xlim1[0], xlim2[0])
+    xhigh = max(xlim1[1], xlim2[1])
+    ylow = min(ylim1[0], ylim2[0])
+    yhigh = max(ylim1[1], ylim2[1])
+    return (xlow, xhigh), (ylow, yhigh)
+
+
+def get_values(
+    column,
+    data,
+    lnprobs,
+    levels_method="hdi",
+    bestfit_method="mean",
+    credible_interval=0.68,
+):
+    lower, upper = limits.get_levels(
+        data[column],
+        lnprobs,
+        levels_method,
+        credible_interval,
+    )
+    bf = bestfit.get_bestfit(data[column], lnprobs, bestfit_method)
+    uncertainty = (upper - lower) / 2
+    first_significant_digit = math.floor(np.log10(uncertainty))
+    u = round_to_significant_digits(uncertainty, 3) * 10 ** (
+        -first_significant_digit + 2
+    )
+    if u > 100 and u < 354:
+        significant_digits_to_round = 2
+    elif u < 949:
+        significant_digits_to_round = 1
+    else:
+        significant_digits_to_round = 2
+    uncertainty = 1000 / 10 ** (-first_significant_digit + 2)
+    rounding_digit = -(
+        math.floor(np.log10(uncertainty)) - significant_digits_to_round + 1
+    )
+    if rounding_digit > 0:
+        frmt = "{{:.{}f}}".format(rounding_digit)
+    else:
+        frmt = "{:.0f}"
+    str_bf = f"{frmt}".format(np.around(bf, rounding_digit))
+    low = f"{frmt}".format(np.around(bf - lower, rounding_digit))
+    up = f"{frmt}".format(np.around(upper - bf, rounding_digit))
+    return str_bf, up, low
 
 
 def safe_normalise(p):
 
     # fix to use arrays
-    if np.sum(p)!=0:
-        p = p/np.sum(p)
+    if np.sum(p) != 0:
+        p = p / np.sum(p)
     return p
 
-# round to get nicer ticks
+
+def delete_all_ticks(ax):
+    for axc in ax.ravel():
+        axc.set_xticks([])
+        axc.set_yticks([])
+        axc.set_xticklabels([])
+        axc.set_yticklabels([])
+        axc.set_axisbelow(True)
+
+
 def round_to_significant_digits(number, significant_digits):
     try:
-        return round(number, significant_digits - int(math.floor(math.log10(abs(number)))) - 1)
-    except:
+        return round(
+            number,
+            significant_digits - int(math.floor(math.log10(abs(number)))) - 1,
+        )
+    except Exception:
         return number
 
 
-def find_optimal_ticks(range_of_param, n_ticks = 3):
-
-    diff = range_of_param[1]-range_of_param[0]
+def find_optimal_ticks(range_of_param, n_ticks=3):
+    diff = range_of_param[1] - range_of_param[0]
     ticks = np.zeros(n_ticks)
 
     # mathematical center and tick interval
-    diff_range = diff/(n_ticks+1)
-    center = range_of_param[0] + diff/2
+    diff_range = diff / (n_ticks + 1)
+    center = range_of_param[0] + diff / 2
 
-    # nicely rounded tick interval
-    rounded_diff_range = round_to_significant_digits(diff_range, 1)
-    if abs(rounded_diff_range-diff_range)/diff_range > 0.199:
-        rounded_diff_range = round_to_significant_digits(diff_range, 2)
+    # first significant digit for rounding
+    significant_digit = math.floor(np.log10(diff_range))
 
-    # decimal until which ticks are rounded
-    decimal_to_round = math.floor(np.log10(rounded_diff_range))
-    if n_ticks&2==0:
-        decimal_to_round-=1
-
-    # nicely rounded center value
-    rounded_center = np.around(center, -decimal_to_round)
-
-    start = rounded_center - (n_ticks-1)/2 * rounded_diff_range
-    for i in range(n_ticks):
-        ticks[i] = np.around(start + i*rounded_diff_range, -decimal_to_round)
+    for i in range(10 * n_ticks):
+        rounded_center = np.around(center, -significant_digit + i)
+        if abs(rounded_center - center) / diff < 0.05:
+            break
+    for i in range(10 * n_ticks):
+        rounded_diff_range = np.around(diff_range, -significant_digit)
+        start = rounded_center - (n_ticks - 1) / 2 * rounded_diff_range
+        for i in range(n_ticks):
+            if n_ticks % 2 == 0:
+                ticks[i] = np.around(
+                    start + i * rounded_diff_range, -significant_digit + 1
+                )
+            else:
+                ticks[i] = np.around(
+                    start + i * rounded_diff_range, -significant_digit
+                )
+        # check if ticks are inside parameter space and
+        # not too close to each other
+        if (
+            (ticks[0] < range_of_param[0])
+            or (ticks[-1] > range_of_param[1])
+            or ((ticks[0] - range_of_param[0]) > 1.2 * rounded_diff_range)
+            or ((range_of_param[1] - ticks[-1]) > 1.2 * rounded_diff_range)
+        ):
+            significant_digit -= 1
+        else:
+            break
+    if significant_digit == math.floor(np.log10(diff_range)) - 10 * n_ticks:
+        for i in range(n_ticks):
+            start = center - (n_ticks - 1) / 2 * diff_range
+            ticks[i] = np.around(start + i * diff_range, -significant_digit)
     return ticks
 
-def histogram_2D(data_panel, prob, bins_x, bins_y):
 
-    if prob is None:
+def get_best_lims(new_xlims, new_ylims, old_xlims, old_ylims):
+    xlims = (
+        np.min([new_xlims[0], old_xlims[0]]),
+        np.max([new_xlims[1], old_xlims[1]]),
+    )
+    ylims = (
+        np.min([new_ylims[0], old_ylims[0]]),
+        np.max([new_ylims[1], old_ylims[1]]),
+    )
+    return xlims, ylims
 
-        prob2d = np.histogram2d(*data_panel, bins=(bins_x, bins_y))[0].T.astype(np.float32)
 
+def add_vline(axc, column, data, color, axvline_kwargs):
+    if np.size(data[column]) > 1:
+        for d in data[column]:
+            axc.axvline(d, color=color, **axvline_kwargs)
     else:
-
-        assert prob.shape[0] == data_panel[0].shape[0]
-
-        hist2d_counts = np.histogram2d(*data_panel, bins=(bins_x, bins_y))[0].T.astype(np.float32)
-        hist2d_prob = np.histogram2d(*data_panel, weights=prob, bins=(bins_x, bins_y))[0].T.astype(np.float32)
-        with warnings.catch_warnings():
-            warnings.simplefilter('ignore')
-            prob2d = hist2d_prob/hist2d_counts.astype(float)
-        prob2d[hist2d_counts==0]=0
-
-    if np.sum(prob2d)>0:
-        prob2d = prob2d / np.sum(prob2d)
-
-    return prob2d
+        axc.axvline(data[column], color=color, **axvline_kwargs)
 
 
-def histogram_1D(data, prob, binedges):
-
-    if prob is None:
-
-        prob1D, _ = np.histogram(data, bins=binedges)
-
-    else:
-
-        assert prob.shape[0] == data.shape[0]
-
-        hist_counts, _ = np.histogram(data, bins=binedges)
-        hist_prob, _ = np.histogram(data, bins=binedges, weights=prob)
-        prob1D = hist_prob/hist_counts.astype(np.float)
-        prob1D[hist_counts==0]
-
-    prob1D = safe_normalise(prob1D)
-    prob1D = np.ma.array(prob1D, mask=prob1D==0)
-    return prob1D
-
-
-def get_density_grid_1D(data, binedges, bincenters, lims, prob=None, method='smoothing', de_kwargs={}):
-
-    if method=='gaussian_mixture':
-
-        if prob is not None:
-            ind = np.random.choice(a=len(prob), size=10000, p=safe_normalise(prob), replace=True)
-            data_ = data[ind][:,np.newaxis]
-        else:
-            data_ = data[:,np.newaxis]
-
-        from trianglechain.TransformedGaussianMixture import TransformedGaussianMixture
-        from sklearn.mixture import GaussianMixture
-        clf = TransformedGaussianMixture(param_bounds=[lims], n_components=20, covariance_type='full')
-        clf.fit(data_)
-        logL = clf.score_samples(bincenters[:,np.newaxis])
-
-        de = np.exp(logL - np.max(logL))
-        de = safe_normalise(de)
-
-    elif method=='smoothing':
-        from scipy import signal
-        from scipy.ndimage import convolve
-        from scipy import ndimage
-
-        prob1D = histogram_1D(data=data, prob=prob, binedges=binedges)
-        data_pixel = pixel_coords(data, [[binedges[0], binedges[-1]]], n_pix_img=len(bincenters))
-        if prob is not None:
-            ind = np.random.choice(prob1D.shape[0], p=prob1D, size=1000)
-            data_pixel = data_pixel[0,ind]
-
-        sig_pix = get_smoothing_sigma(data_pixel, prob1D.shape[0])
-        n_pix = max(3,int(np.ceil(sig_pix*10))) # 10 sigma smoothing
-        kernel = signal.gaussian(n_pix, sig_pix)
-        de = scipy.ndimage.convolve(prob1D, kernel, mode='reflect')
-        de = safe_normalise(de)
-
-        # de = np.convolve(a=prob1D, v=np.ones(5), mode='same')
-        # de = signal.convolve2d(prob2d, kernel, mode='same', boundary='wrap')
-
-    elif method=='median_filter':
-
-        from scipy import ndimage
-        prob1D = histogram_1D(data=data, prob=prob, binedges=binedges)
-        de = ndimage.median_filter(prob1D, int(prob1D.shape[0]/10))
-
-
-    elif method=='kde':
-
-        from KDEpy import TreeKDE
-        de = TreeKDE(kernel='gaussian', bw='ISJ').fit(data).evaluate(bincenters)
-
-    elif method=='hist':
-
-        de = histogram_1D(data=data, prob=prob, binedges=binedges)
-
-    else:
-
-        raise Exception('unknown density estimation method {}'.format(method))
-
-    return de
+def set_limits(axc, ranges, current_ranges, col1, col2, old_xlims, old_ylims):
+    current_ranges[col2], current_ranges[col1] = get_best_lims(
+        current_ranges[col2],
+        current_ranges[col1],
+        old_xlims,
+        old_ylims,
+    )
+    try:
+        xlims = ranges[col2]
+    except Exception:
+        xlims = current_ranges[col2]
+    try:
+        ylims = ranges[col1]
+    except Exception:
+        ylims = current_ranges[col1]
+    axc.set_xlim(xlims)
+    axc.set_ylim(ylims)
+    axc.get_yaxis().set_major_formatter(FormatStrFormatter("%.3e"))
+    axc.get_xaxis().set_major_formatter(FormatStrFormatter("%.3e"))
 
 
 def pixel_coords(x, ranges, n_pix_img):
@@ -159,265 +305,31 @@ def pixel_coords(x, ranges, n_pix_img):
     for i in range(xt.shape[0]):
         try:
             xt[i] -= ranges[i][0]
-            xt[i] /= (ranges[i][1]-ranges[i][0])
-        except:
-            import ipdb; ipdb.set_trace()
+            xt[i] /= ranges[i][1] - ranges[i][0]
+        except Exception:
+            import ipdb
+
+            ipdb.set_trace()
     return xt * n_pix_img
+
 
 def get_smoothing_sigma(x, max_points=5000):
 
     x = np.atleast_2d(x)
     from sklearn.decomposition import PCA
 
-    if x.shape[0]==2:
+    if x.shape[0] == 2:
         pca = PCA()
         pca.fit(x.T)
-        sig_pix = np.sqrt(pca.explained_variance_[-1])*0.2
-    elif x.shape[0]==1:
+        sig_pix = np.sqrt(pca.explained_variance_[-1])
+    elif x.shape[0] == 1:
         mad = median_absolute_deviation(x, axis=1)
-        sig_pix = np.min(mad) * 0.1
+        sig_pix = np.min(mad)
 
     return sig_pix
 
-def get_density_grid_2D(data, ranges, columns, i, j, prob=None, method='smoothing', de_kwargs={}):
 
-    data_panel = np.vstack((data[columns[j]], data[columns[i]]))
-    n_samples = len(data_panel)
-    x_ls = np.linspace(*ranges[columns[j]], num=de_kwargs['n_points'])
-    y_ls = np.linspace(*ranges[columns[i]], num=de_kwargs['n_points'])
-    x_grid, y_grid = np.meshgrid(x_ls, y_ls)
-    gridpoints = np.vstack([x_grid.ravel(), y_grid.ravel()])
-    bins_x = np.linspace(x_ls[0], x_ls[-1], num=de_kwargs['n_points'] + 1)
-    bins_y = np.linspace(y_ls[0], y_ls[-1], num=de_kwargs['n_points'] + 1)
-    bins_x_centers = (bins_x[1:]+bins_x[:-1])/2.
-    bins_y_centers = (bins_y[1:]+bins_y[:-1])/2.
-    x_grid_centers, y_grid_centers = np.meshgrid(bins_x_centers, bins_y_centers)
-
-    if method=='gaussian_mixture':
-
-        if prob is not None:
-            ind = np.random.choice(a=len(prob), size=10000, p=safe_normalise(prob), replace=True)
-            data_panel = data_panel[:,ind]
-
-        bounds = [ranges[columns[j]], ranges[columns[i]]]
-
-        from trianglechain.TransformedGaussianMixture import TransformedGaussianMixture
-        from sklearn.mixture import GaussianMixture
-        clf = TransformedGaussianMixture(param_bounds=bounds, n_components=10, covariance_type='full')
-        clf.fit(data_panel.T)
-        logL = clf.score_samples(gridpoints.T)
-
-        de = np.exp(logL - np.max(logL)).reshape(x_grid.shape)
-        de = safe_normalise(de)
-
-    elif method=='smoothing':
-
-        prob2d = histogram_2D(data_panel, prob, bins_x, bins_y)
-        prob2d = safe_normalise(prob2d)
-        from scipy import signal
-        data_panel_pixel = pixel_coords(data_panel, [ranges[columns[j]], ranges[columns[i]]], n_pix_img=de_kwargs['n_points'])
-        if prob is not None:
-            ids = np.random.choice(a=len(prob), p=prob, size=1000, replace=True)
-            data_panel_pixel = data_panel_pixel[:,ids]
-
-        if de_kwargs['smoothing_sigma'] is None:
-            sig_pix = get_smoothing_sigma(data_panel_pixel)
-            n_pix= int(np.ceil(sig_pix*5))
-        else:
-            sig_pix = de_kwargs['smoothing_sigma']
-
-        from scipy.ndimage import gaussian_filter
-        de = gaussian_filter(prob2d, sigma=sig_pix)
-
-
-    elif method=='median_filter':
-
-        from scipy import ndimage
-        prob2d = histogram_2D(data_panel, prob, bins_x, bins_y)
-        prob2d = safe_normalise(prob2d)
-        n_pix = int(prob2d.shape[0]/5)
-        de = ndimage.median_filter(prob2d, n_pix)
-
-    elif method=='kde':
-
-        from KDEpy import TreeKDE
-        de = TreeKDE(kernel='gaussian').fit(data_panel.T).evaluate(gridpoints.T).reshape(x_grid.shape)
-
-    elif method=='hist':
-
-        de = histogram_2D(data_panel, prob, bins_x, bins_y)
-
-    else:
-
-        raise Exception('unknown density estimation method {}'.format(method))
-
-    de[~np.isfinite(de)] = 0
-    de = safe_normalise(de)
-    return de, x_grid_centers, y_grid_centers
-
-def density_image(axc, data, ranges, columns, i, j, fill, color, cmap, de_kwargs, prob=None, density_estimation_method='smoothing', alpha_for_low_density=False, alpha_threshold = 0):
-    """
-    axc - axis of the plot
-    data - numpy struct array with column data
-    ranges - dict of ranges for each column in data
-    columns - list of columns
-    i, j - pair of columns to plot
-    fill - use filled contour
-    color - color for the contour
-    de_kwargs - dict with kde settings, has to have n_points, n_levels_check, levels, defaults below
-    prob - if not None, then probability attached to the samples, in that case samples are treated as grid not a chain
-    """
-    kde, x_grid, y_grid = get_density_grid_2D(data=data, ranges=ranges, columns=columns, i=i, j=j, de_kwargs=de_kwargs, prob=prob, method=density_estimation_method)
-    if alpha_for_low_density:
-        cmap_plt = plt.get_cmap(cmap)
-        my_cmap = cmap_plt(np.arange(cmap_plt.N))
-        cmap_threshold = int(cmap_plt.N * alpha_threshold)
-        my_cmap[:cmap_threshold,-1] = np.linspace(0, 1, cmap_threshold)
-        cmap = ListedColormap(my_cmap)
-    axc.pcolormesh(x_grid, y_grid, kde, cmap=cmap, shading='auto')
-
-def get_confidence_levels(de, levels, n_levels_check):
-
-    lvl_max = 0.99
-    levels_check = np.linspace(0, np.amax(de)*lvl_max, n_levels_check)
-    frac_levels = np.zeros_like(levels_check)
-
-    for il, vl in enumerate(levels_check):
-        pixels_above_level = de > vl
-        frac_levels[il] = np.sum(pixels_above_level * de)
-
-    levels_contour = [levels_check[np.argmin(np.fabs(frac_levels - level))] for level in levels][::-1]
-    # print('levels_contour', levels_contour/np.amax(de)/lvl_max)
-    # if np.any(levels_contour==levels_check[-1]):
-        # print('contour hitting the boundary level {}'.format(str(levels_contour/np.amax(de)/lvl_max)))
-    return levels_contour
-
-
-def contour_cl(axc, data, ranges, columns, i, j, fill, color, de_kwargs, prob=None,  density_estimation_method='smoothing', lw=2, alpha=0.4):
-    """
-    axc - axis of the plot
-    data - numpy struct array with column data
-    ranges - dict of ranges for each column in data
-    columns - list of columns
-    i, j - pair of columns to plot
-    fill - use filled contour
-    color - color for the contour
-    de_kwargs - dict with kde settings, has to have n_points, n_levels_check, levels, defaults below
-    prob - if not None, then probability attached to the samples, in that case samples are treated as grid not a chain
-    """
-
-    def _get_paler_colors(color_rgb, n_levels, pale_factor=None):
-
-        solid_contour_palefactor = 0.6
-
-        # convert a color into an array of colors for used in contours
-        color = matplotlib.colors.colorConverter.to_rgb(color_rgb)
-        pale_factor = pale_factor or solid_contour_palefactor
-        cols = [color]
-        for _ in range(1, n_levels):
-            cols = [[c * (1 - pale_factor) + pale_factor for c in cols[0]]] + cols
-        return cols
-
-
-    de, x_grid, y_grid = get_density_grid_2D(i=i, j=j,
-                                             data=data,
-                                             prob=prob,
-                                             ranges=ranges,
-                                             columns=columns,
-                                             method=density_estimation_method,
-                                             de_kwargs=de_kwargs)
-
-    levels_contour = get_confidence_levels(de=de, levels=de_kwargs['levels'], n_levels_check=de_kwargs['n_levels_check'])
-
-    with warnings.catch_warnings():
-        # this will suppress all warnings in this block
-        warnings.simplefilter("ignore")
-        colors = _get_paler_colors(color_rgb=color, n_levels=len(de_kwargs['levels']))
-
-        for l, lvl in enumerate(levels_contour):
-            if fill:
-                axc.contourf(x_grid, y_grid, de, levels=[lvl, np.inf], colors=[colors[l]], alpha=1)
-                # axc.contour(x_grid, y_grid, de, levels=[lvl, np.inf], colors=[colors[l]], alpha=1, linewidths=1)
-            else:
-                axc.contour(x_grid, y_grid, de, levels=[lvl, np.inf], colors=color, alpha=1, linewidths=lw*2)
-
-def scatter_density(axc, points1, points2, n_bins=50, lim1=None, lim2=None, norm_cols=False, n_points_scatter=-1, colorbar=False, **kwargs):
-
-    import numpy as np
-    if lim1 is None:
-        min1 = np.min(points1)
-        max1 = np.max(points1)
-    else:
-        min1 = lim1[0]
-        max1 = lim1[1]
-    if lim2 is None:
-        min2 = np.min(points2)
-        max2 = np.max(points2)
-    else:
-        min2 = lim2[0]
-        max2 = lim2[1]
-
-    bins_edges1=np.linspace(min1, max1, n_bins)
-    bins_edges2=np.linspace(min2, max2, n_bins)
-
-    hv,bv,_ = np.histogram2d(points1,points2,bins=[bins_edges1, bins_edges2])
-
-    if norm_cols==True:
-        hv = hv/np.sum(hv, axis=0)[:,np.newaxis]
-
-    bins_centers1 = (bins_edges1 - (bins_edges1[1]-bins_edges1[0])/2)[1:]
-    bins_centers2 = (bins_edges2 - (bins_edges2[1]-bins_edges2[0])/2)[1:]
-
-    from scipy.interpolate import griddata
-
-    select_box = (points1<max1) & (points1>min1) & (points2<max2) & (points2>min2)
-    points1_box, points2_box = points1[select_box], points2[select_box]
-
-    x1,x2 = np.meshgrid(bins_centers1, bins_centers2)
-    points = np.concatenate([x1.flatten()[:,np.newaxis], x2.flatten()[:,np.newaxis]], axis=1)
-    xi = np.concatenate([points1_box[:,np.newaxis], points2_box[:,np.newaxis]],axis=1)
-
-
-    if lim1 is not None:
-        axc.set_xlim(lim1);
-    if lim2 is not None:
-        axc.set_ylim(lim2)
-
-
-    if n_points_scatter>0:
-        select = np.random.choice(len(points1_box), n_points_scatter)
-        c = griddata(points, hv.T.flatten(), xi[select,:], method='linear', rescale=True, fill_value=np.min(hv) )
-        sc = axc.scatter(points1_box[select], points2_box[select], c=c, **kwargs)
-    else:
-        c = griddata(points, hv.T.flatten(), xi, method='linear', rescale=True, fill_value=np.min(hv) )
-        sorting = np.argsort(c)
-        sc = axc.scatter(points1_box[sorting], points2_box[sorting], c=c[sorting],  **kwargs)
-
-    if colorbar:
-        plt.gcf().colorbar(sc, ax=axc)
-
-
-def add_markers(fig, data_markers, tri='lower',scatter_kwargs={}):
-
-    columns = data.dtype.names
-    n_dim = len(columns)
-    n_box = n_dim+1
-    ax = np.array(fig.get_axes()).reshape(n_box, n_box)
-
-    if tri[0]=='l':
-        tri_indices = np.tril_indices(n_dim, k=-1)
-    elif tri[0]=='u':
-        tri_indices = np.triu_indices(n_dim, k=1)
-    else:
-        raise Exception('tri={} should be either l or u'.format(tri))
-
-    for i, j in zip(*tri_indices):
-
-        axc = get_current_ax(ax, tri, i, j)
-
-
-
-def ensure_rec(data, column_prefix=''):
+def ensure_rec(data, column_prefix=""):
 
     if data.dtype.names is not None:
         return data
@@ -425,9 +337,20 @@ def ensure_rec(data, column_prefix=''):
     else:
 
         n_rows, n_cols = data.shape
-        dtype = np.dtype(dict(formats=[data.dtype]*n_cols, names=[f'{column_prefix}{i}' for i in range(n_cols)]))
+        dtype = np.dtype(
+            dict(
+                formats=[data.dtype] * n_cols,
+                names=[f"{column_prefix}{i}" for i in range(n_cols)],
+            )
+        )
         rec = np.empty(n_rows, dtype=dtype)
         for i in range(n_cols):
-            rec[f'{column_prefix}{i}'] = data[:,i]
+            rec[f"{column_prefix}{i}"] = data[:, i]
         return rec
 
+
+def find_alpha(column, empty_columns, alpha=1):
+    if column in empty_columns:
+        return 0
+    else:
+        return alpha

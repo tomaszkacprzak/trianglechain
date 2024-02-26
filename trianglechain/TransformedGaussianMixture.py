@@ -1,39 +1,53 @@
 from sklearn.mixture import GaussianMixture
 import numpy as np
 from scipy.stats import norm
+
 # import chaospy
 
+
 def scale_fwd(x, param_bounds, param_bounds_trans):
-    xs = x-param_bounds[0]
-    xs = xs/(param_bounds[1]-param_bounds[0])*(param_bounds_trans[1]-param_bounds_trans[0])
-    xs = xs+param_bounds_trans[0]
+    xs = x - param_bounds[0]
+    xs = (
+        xs
+        / (param_bounds[1] - param_bounds[0])
+        * (param_bounds_trans[1] - param_bounds_trans[0])
+    )
+    xs = xs + param_bounds_trans[0]
     return xs
+
 
 def scale_inv(x, param_bounds, param_bounds_trans):
     xs = x - param_bounds_trans[0]
-    xs = xs*(param_bounds[1]-param_bounds[0])/(param_bounds_trans[1]-param_bounds_trans[0])
-    xs = xs+param_bounds[0]
+    xs = (
+        xs
+        * (param_bounds[1] - param_bounds[0])
+        / (param_bounds_trans[1] - param_bounds_trans[0])
+    )
+    xs = xs + param_bounds[0]
     return xs
 
+
 def trans_fwd(x, param_bounds, param_bounds_trans):
-    xs=scale_fwd(x, param_bounds, param_bounds_trans)
-    ppfx=norm.ppf(xs)
+    xs = scale_fwd(x, param_bounds, param_bounds_trans)
+    ppfx = norm.ppf(xs)
     if np.any(~np.isfinite(ppfx)):
-        import ipdb; ipdb.set_trace()
+        import ipdb
+
+        ipdb.set_trace()
     return ppfx
 
+
 def trans_inv(x, param_bounds, param_bounds_trans):
-    xi=norm.cdf(x)
-    xi=scale_inv(xi, param_bounds, param_bounds_trans)
+    xi = norm.cdf(x)
+    xi = scale_inv(xi, param_bounds, param_bounds_trans)
     return xi
 
-class TransformedGaussianMixture():
 
-
+class TransformedGaussianMixture:
     def __init__(self, param_bounds=None, *args, **kwargs):
 
         self.eps = 1e-8
-        self.bounds_trans = [self.eps, 1-self.eps]
+        self.bounds_trans = [self.eps, 1 - self.eps]
         self.param_bounds = param_bounds
 
         self.gm = GaussianMixture(*args, **kwargs)
@@ -41,8 +55,12 @@ class TransformedGaussianMixture():
     def set_bounds(self, X):
 
         if self.param_bounds is None:
-            self.param_bounds = np.array([np.min(X, axis=0)-10*self.eps, np.max(X, axis=0)+10*self.eps]).T
-
+            self.param_bounds = np.array(
+                [
+                    np.min(X, axis=0) - 10 * self.eps,
+                    np.max(X, axis=0) + 10 * self.eps,
+                ]
+            ).T
 
     def fit(self, X, y=None):
 
@@ -101,12 +119,15 @@ class TransformedGaussianMixture():
         X_trans = self._transform_params_forward(X)
         return self.gm.aic(X_trans)
 
-
     def _transform_params_forward(self, X):
 
         X_trans = X.copy()
         for i in range(X.shape[1]):
-            X_trans[:,i] = trans_fwd(x=np.array(X[:,i]), param_bounds=self.param_bounds[i], param_bounds_trans=self.bounds_trans)
+            X_trans[:, i] = trans_fwd(
+                x=np.array(X[:, i]),
+                param_bounds=self.param_bounds[i],
+                param_bounds_trans=self.bounds_trans,
+            )
 
         return X_trans
 
@@ -114,6 +135,10 @@ class TransformedGaussianMixture():
 
         X = X_trans.copy()
         for i in range(X.shape[1]):
-            X[:,i] = trans_inv(x=np.array(X_trans[:,i]), param_bounds=self.param_bounds[i], param_bounds_trans=self.bounds_trans)
+            X[:, i] = trans_inv(
+                x=np.array(X_trans[:, i]),
+                param_bounds=self.param_bounds[i],
+                param_bounds_trans=self.bounds_trans,
+            )
 
         return X
